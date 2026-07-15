@@ -1,0 +1,14 @@
+[server]
+headless = true
+port = 8501
+address = "0.0.0.0"
+# Behind a reverse proxy (Apache/Nginx) with HTTPS terminated there:
+enableCORS = false
+enableXsrfProtection = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+base = "dark"
+primaryColor = "#ffd54a"

@@ -1,0 +1,37 @@
+# systemd unit for running the BTC-vs-Moon Streamlit app as a service.
+#
+# Install:
+#   sudo cp deploy/moonvsbtc.service /etc/systemd/system/moonvsbtc.service
+#   # edit User/WorkingDirectory/ExecStart paths below to match your server
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now moonvsbtc
+#   sudo systemctl status moonvsbtc
+#
+# Assumes the repo is cloned to /opt/moonvsbtc with a venv at /opt/moonvsbtc/.venv
+# (python3 -m venv .venv && .venv/bin/pip install -r requirements.txt).
+
+[Unit]
+Description=BTC vs Moon Streamlit dashboard
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/opt/moonvsbtc
+ExecStart=/opt/moonvsbtc/.venv/bin/streamlit run app.py \
+    --server.port=8501 \
+    --server.address=127.0.0.1 \
+    --server.headless=true
+Restart=on-failure
+RestartSec=5
+
+# Hardening (optional but recommended)
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+.qodo/
+.DS_Store
+*.md
+!README.md
+moon_phase_table.html
