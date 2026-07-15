@@ -1,6 +1,6 @@
-"""Generate the 1200x630 Open Graph share image (site/assets/og-image.png).
+"""Generate the 1200x630 Open Graph share image (docs/assets/og-image.png).
 
-Run:  ../.venv/bin/python make_og_image.py   (from the site/ directory)
+Run:  .venv/bin/python tools/make_og_image.py   (from the repo root)
 No external assets — draws everything with Pillow using system fonts.
 """
 from __future__ import annotations
@@ -11,7 +11,7 @@ import os
 from PIL import Image, ImageDraw, ImageFont
 
 W, H = 1200, 630
-OUT = os.path.join(os.path.dirname(__file__), "assets", "og-image.png")
+OUT = os.path.join(os.path.dirname(__file__), "..", "docs", "assets", "og-image.png")
 
 GOLD = (255, 213, 74)
 BLUE = (90, 155, 255)
@@ -89,10 +89,10 @@ draw.text((74, 368), "bottoms? Measuring the lag — and predicting it.",
 
 # footer strip
 draw.line([(72, 560), (1128, 560)], fill=(40, 44, 58), width=2)
-draw.text((72, 578), "moonvsbtc  ·  interactive lunar-cycle analysis for BTC",
+draw.text((72, 578), "interactive lunar-cycle analysis for Bitcoin",
           font=f_small, fill=MUTE)
-draw.text((absx := 1128 - int(draw.textlength("darrenk.uk", font=f_small)), 578),
-          "darrenk.uk", font=f_small, fill=GOLD)
+draw.text((absx := 1128 - int(draw.textlength("bitcoinvsthemoon.com", font=f_small)), 578),
+          "bitcoinvsthemoon.com", font=f_small, fill=GOLD)
 
 img.save(OUT, "PNG", optimize=True)
 print(f"wrote {OUT} ({os.path.getsize(OUT)//1024} KB)")

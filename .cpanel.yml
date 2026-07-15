@@ -1,0 +1,26 @@
+---
+# cPanel Git Version Control deployment.
+#
+# On "Update from Remote" + "Deploy HEAD Commit" (or `git push` to the cPanel
+# repo), cPanel runs these tasks. They publish the static SEO site (docs/) to
+# your domain's document root.
+#
+# >>> EDIT DEPLOYPATH <<< to match your domain's docroot, shown in
+# cPanel » Domains (e.g. /home/CPUSER/public_html for a primary domain, or
+# /home/CPUSER/bitcoinvsthemoon.com for an addon/subdomain).
+#
+# NOTE: this only deploys the static site. The interactive Streamlit tool at
+# /app/ is a running Python process and is set up once over SSH — see
+# deploy/cpanel-app-proxy.conf and the README.
+
+deployment:
+  tasks:
+    - export DEPLOYPATH=/home/CPUSER/public_html
+    - /bin/mkdir -p $DEPLOYPATH
+    - /bin/cp -R docs/index.html $DEPLOYPATH/
+    - /bin/cp -R docs/moon-phases.html $DEPLOYPATH/
+    - /bin/cp -R docs/bitcoin-history.html $DEPLOYPATH/
+    - /bin/cp -R docs/methodology.html $DEPLOYPATH/
+    - /bin/cp -R docs/robots.txt $DEPLOYPATH/
+    - /bin/cp -R docs/sitemap.xml $DEPLOYPATH/
+    - /bin/cp -R docs/assets $DEPLOYPATH/

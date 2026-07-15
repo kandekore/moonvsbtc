@@ -80,73 +80,93 @@ Run the analysis engine standalone (no UI) for a quick text summary:
 
 Streamlit apps are **not indexable** — they render client-side over a WebSocket,
 the `<head>` is fixed, and there are no crawlable URLs. So the project is split
-into two tiers:
+into two tiers, both served from **one domain on the Apache VPS**:
 
 ```
-/            → static crawlable HTML site  (site/)   ← all the SEO weight
-/app/        → the interactive Streamlit tool        ← linked from the site
+bitcoinvsthemoon.com/       → static crawlable HTML site (docs/)  ← all the SEO weight
+bitcoinvsthemoon.com/app/   → the interactive Streamlit tool      ← reverse-proxied
 ```
 
-The **`site/`** folder is a fast, self-contained static site (system fonts, no
+The **`docs/`** folder is a fast, self-contained static site (system fonts, no
 external requests) carrying the search visibility:
 
 | Page | Purpose |
 |------|---------|
-| `site/index.html` | Landing page — hypothesis, key findings, FAQ, CTA to the tool. |
-| `site/moon-phases.html` | Content: the lunar cycle, full/new moons, market lore. |
-| `site/bitcoin-history.html` | Content: halving cycles, bull/bear markets, volatility. |
-| `site/methodology.html` | Content: swing-pivot detection, signed-lag stats, prediction. |
-| `site/robots.txt`, `site/sitemap.xml` | Crawl directives + sitemap. |
-| `site/assets/og-image.png` | 1200×630 Open Graph share image (regenerate with `site/make_og_image.py`). |
-| `site/assets/style.css`, `favicon.svg` | Shared styling + icon. |
+| `docs/index.html` | Landing page — hypothesis, key findings, FAQ, CTA to the tool. |
+| `docs/moon-phases.html` | Content: the lunar cycle, full/new moons, market lore. |
+| `docs/bitcoin-history.html` | Content: halving cycles, bull/bear markets, volatility. |
+| `docs/methodology.html` | Content: swing-pivot detection, signed-lag stats, prediction. |
+| `docs/robots.txt`, `docs/sitemap.xml` | Crawl directives + sitemap. |
+| `docs/assets/og-image.png` | 1200×630 Open Graph share image (regenerate with `tools/make_og_image.py`). |
+| `docs/assets/style.css`, `favicon.svg` | Shared styling + icon. |
 
 Every page ships: a unique keyword-rich `<title>` + meta description, canonical
 URL, Open Graph + Twitter Card tags, and **JSON-LD structured data**
 (`WebSite`, `WebApplication`, `Article`/`TechArticle`, `BreadcrumbList`,
 `FAQPage`) for rich results.
 
-> **Set your domain.** The canonical/OG URLs use `https://moonvsbtc.darrenk.uk`.
-> If you deploy elsewhere, find-and-replace that host across `site/` and
-> `deploy/`, then regenerate the OG image.
+> **URLs are set for `https://bitcoinvsthemoon.com`.** If the domain changes,
+> find-and-replace that host across `docs/` and `deploy/`, then regenerate the OG
+> image with `tools/make_og_image.py`.
 
-## Deployment
+## Deployment (Apache VPS — site + tool on one domain)
 
-The interactive tool is a **Python/Streamlit** app that runs its own web server;
-Apache serves the static `site/` at the root and reverse-proxies the tool at
-`/app/`.
+Point `bitcoinvsthemoon.com` (and `www`) DNS at the VPS, then:
 
-### Option A — Docker (the tool, portable)
+```bash
+# 1. code + dependencies
+sudo git clone <your-repo> /opt/moonvsbtc && cd /opt/moonvsbtc
+sudo python3 -m venv .venv && sudo .venv/bin/pip install -r requirements.txt
+
+# 2. run the Streamlit tool as a service (already sets --server.baseUrlPath=app)
+sudo cp deploy/moonvsbtc.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now moonvsbtc
+
+# 3. Apache: static docs/ at /, tool proxied at /app/ (WebSocket-aware)
+sudo a2enmod proxy proxy_http proxy_wstunnel rewrite headers
+sudo cp deploy/apache-moonvsbtc.conf /etc/apache2/sites-available/bitcoinvsthemoon.conf
+sudo a2ensite bitcoinvsthemoon && sudo systemctl reload apache2
+
+# 4. HTTPS (free, auto-renewing)
+sudo certbot --apache -d bitcoinvsthemoon.com -d www.bitcoinvsthemoon.com
+```
+
+Then submit `https://bitcoinvsthemoon.com/sitemap.xml` in
+[Google Search Console](https://search.google.com/search-console).
+
+**Updating later:** `cd /opt/moonvsbtc && sudo git pull`, then
+`sudo systemctl restart moonvsbtc` (static `docs/` changes are live immediately).
+
+### Deploying via cPanel Git Version Control
+
+The repo ships a **`.cpanel.yml`** so cPanel can publish the static site for you.
+
+1. **Static site (Git module):** in cPanel » *Git Version Control*, clone this
+   repo, then edit `DEPLOYPATH` in `.cpanel.yml` to your domain's document root
+   (see cPanel » *Domains*). Each *Update from Remote* → *Deploy HEAD Commit*
+   copies `docs/` into that docroot. That alone makes the crawlable SEO site live.
+2. **Interactive tool (one-time, over SSH):** the Git module only copies files —
+   it can't run Python. So set the Streamlit process up once:
+   - Install deps in a venv and start it as a service:
+     `--server.baseUrlPath=app` on `127.0.0.1:8501` (use `deploy/moonvsbtc.service`
+     if you have root/WHM, or cPanel's *Application Manager* / a `screen` session).
+   - Add the reverse proxy from **`deploy/cpanel-app-proxy.conf`** via
+     WHM » *Apache Configuration* » *Include Editor* (don't edit the vhost directly
+     on cPanel), then rebuild + restart Apache.
+   - Enable `mod_proxy`, `mod_proxy_http`, `mod_proxy_wstunnel`, `mod_rewrite` in
+     EasyApache 4 if they aren't already.
+
+If you don't have WHM/root on the cPanel box, the static site still works fully;
+the `/app/` tool needs that proxy + a long-running process, so host it on the VPS
+side or a subdomain you can proxy.
+
+### Alternative: Docker for just the tool
 
 ```bash
 docker build -t moonvsbtc .
 docker run -d --name moonvsbtc -p 8501:8501 --restart unless-stopped moonvsbtc
 ```
-
-Runs just the Streamlit tool. Put Nginx/Apache in front for the static site + HTTPS.
-
-### Option B — static site + systemd service + Apache (full setup)
-
-```bash
-# clone to /opt/moonvsbtc, create venv
-sudo git clone <your-repo> /opt/moonvsbtc && cd /opt/moonvsbtc
-sudo python3 -m venv .venv && sudo .venv/bin/pip install -r requirements.txt
-
-# run the tool as a service (already sets --server.baseUrlPath=app)
-sudo cp deploy/moonvsbtc.service /etc/systemd/system/
-sudo systemctl daemon-reload && sudo systemctl enable --now moonvsbtc
-
-# Apache: static site at /, tool proxied at /app/ (WebSocket-aware)
-sudo a2enmod proxy proxy_http proxy_wstunnel rewrite headers
-sudo cp deploy/apache-moonvsbtc.conf /etc/apache2/sites-available/moonvsbtc.conf
-sudo a2ensite moonvsbtc && sudo systemctl reload apache2
-# then: sudo certbot --apache -d moonvsbtc.darrenk.uk   # for HTTPS
-```
-
-### Option C — Streamlit Community Cloud (tool only, zero admin)
-
-Push to GitHub, deploy at [share.streamlit.io](https://share.streamlit.io)
-pointing at `app.py`. Host `site/` anywhere static (GitHub Pages, Netlify) and
-point its "Launch Tool" links at the Streamlit Cloud URL.
+Still front it with the Apache vhost in `deploy/` for the static site + HTTPS.
 
 Deployment files: `Dockerfile`, `.dockerignore`, `.streamlit/config.toml`,
 `deploy/moonvsbtc.service`, `deploy/apache-moonvsbtc.conf`.

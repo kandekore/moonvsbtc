@@ -4,4 +4,4 @@ Allow: /
 # The interactive Streamlit tool is a JavaScript app with no crawlable content.
 Disallow: /app/
 
-Sitemap: https://moonvsbtc.darrenk.uk/sitemap.xml
+Sitemap: https://bitcoinvsthemoon.com/sitemap.xml
