@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bitcoin vs the Moon — Do Lunar Phases Predict BTC Tops & Bottoms?</title>
+  <meta name="description" content="An interactive tool testing whether full moons mark Bitcoin tops and new moons mark bottoms. It measures the average lag between each lunar phase and the real price turning point, then predicts upcoming BTC tops and bottoms.">
+  <meta name="keywords" content="bitcoin moon phases, full moon bitcoin top, new moon bitcoin bottom, lunar cycle trading, BTC price prediction, moon phase crypto, bitcoin lunar analysis">
+  <meta name="author" content="Darren Kandekore">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <link rel="canonical" href="https://moonvsbtc.darrenk.uk/">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Bitcoin vs the Moon">
+  <meta property="og:title" content="Bitcoin vs the Moon — Do Lunar Phases Predict BTC Tops & Bottoms?">
+  <meta property="og:description" content="Testing whether full moons mark Bitcoin tops and new moons mark bottoms — measuring the lag and predicting future turning points.">
+  <meta property="og:url" content="https://moonvsbtc.darrenk.uk/">
+  <meta property="og:image" content="https://moonvsbtc.darrenk.uk/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Bitcoin vs the Moon — lunar-cycle analysis for BTC">
+
+  <!-- Twitter -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Bitcoin vs the Moon — Do Lunar Phases Predict BTC Tops & Bottoms?">
+  <meta name="twitter:description" content="Testing whether full moons mark Bitcoin tops and new moons mark bottoms — measuring the lag and predicting future turning points.">
+  <meta name="twitter:image" content="https://moonvsbtc.darrenk.uk/assets/og-image.png">
+
+  <meta name="theme-color" content="#0b0d14">
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/style.css">
+
+  <!-- Structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "WebSite",
+        "@id": "https://moonvsbtc.darrenk.uk/#website",
+        "url": "https://moonvsbtc.darrenk.uk/",
+        "name": "Bitcoin vs the Moon",
+        "description": "Testing whether lunar phases predict Bitcoin tops and bottoms.",
+        "publisher": { "@id": "https://moonvsbtc.darrenk.uk/#person" }
+      },
+      {
+        "@type": "Person",
+        "@id": "https://moonvsbtc.darrenk.uk/#person",
+        "name": "Darren Kandekore",
+        "url": "https://darrenk.uk"
+      },
+      {
+        "@type": "WebApplication",
+        "name": "Bitcoin vs the Moon",
+        "url": "https://moonvsbtc.darrenk.uk/",
+        "applicationCategory": "FinanceApplication",
+        "operatingSystem": "Any (web browser)",
+        "browserRequirements": "Requires JavaScript",
+        "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+        "author": { "@id": "https://moonvsbtc.darrenk.uk/#person" },
+        "description": "Interactive dashboard that detects Bitcoin swing tops and bottoms, matches them to full and new moons, measures the average lag, and predicts future turning points."
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Do full moons cause Bitcoin tops?",
+            "acceptedAnswer": { "@type": "Answer", "text": "There is no established causal link between lunar phases and markets. This project treats it as a testable pattern: it detects real swing highs in Bitcoin's price and measures how many days they fall from the nearest full moon. On the strictest settings the average top lands a few days after the full moon, but with a wide spread — so it is a weak statistical tendency at best, not a reliable rule." }
+          },
+          {
+            "@type": "Question",
+            "name": "How does the tool predict future Bitcoin tops and bottoms?",
+            "acceptedAnswer": { "@type": "Answer", "text": "It calculates the average signed lag between past full moons and price tops (and new moons and bottoms), then projects that lag onto upcoming moon dates, drawing a predicted date with a one-standard-deviation uncertainty window." }
+          },
+          {
+            "@type": "Question",
+            "name": "Is this financial advice?",
+            "acceptedAnswer": { "@type": "Answer", "text": "No. It is an educational, exploratory data-analysis tool. Lunar phases have no proven effect on asset prices and nothing here should be used to make investment decisions." }
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <header class="site">
+    <div class="wrap nav">
+      <a class="brand" href="/">🌕 Bitcoin&nbsp;vs&nbsp;the&nbsp;Moon</a>
+      <nav aria-label="Primary">
+        <ul>
+          <li><a href="/moon-phases.html">Moon Phases</a></li>
+          <li><a href="/bitcoin-history.html">BTC History</a></li>
+          <li><a href="/methodology.html">Methodology</a></li>
+          <li><a class="cta" href="/app/">Launch Tool</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div class="hero">
+      <div class="wrap">
+        <h1>Does the <span class="accent">Moon</span> move Bitcoin?</h1>
+        <p class="lead">
+          A data experiment testing the old trader's tale: <strong>full moon = local top</strong>,
+          <strong>new moon = local bottom</strong>. It measures the real lag between each phase and
+          the price turning point — then predicts the next ones.
+        </p>
+        <a class="btn btn-primary" href="/app/">Launch the live tool →</a>
+        <a class="btn btn-ghost" href="/methodology.html">How it works</a>
+      </div>
+    </div>
+
+    <section>
+      <div class="wrap">
+        <h2>The idea in one minute</h2>
+        <p class="muted" style="max-width:720px">
+          Lunar cycles have been folk-linked to markets for decades. Rather than take it on faith,
+          this tool pulls Bitcoin's full price history, finds every genuine swing top and bottom,
+          and lines them up against every full and new moon since 2014 to see whether the pattern
+          actually holds — and by how many days it's off.
+        </p>
+        <div class="grid" style="margin-top:1.5rem">
+          <div class="card">
+            <span class="emoji">🌕</span>
+            <h3>Full moon → top?</h3>
+            <p class="muted">Each full moon is matched to the nearest real swing high in BTC, recording whether the top came before or after — and by how many days.</p>
+          </div>
+          <div class="card">
+            <span class="emoji">🌑</span>
+            <h3>New moon → bottom?</h3>
+            <p class="muted">Each new moon is matched to the nearest swing low, so we can see if bottoms really cluster around the dark of the moon.</p>
+          </div>
+          <div class="card">
+            <span class="emoji">🔮</span>
+            <h3>Predict the next</h3>
+            <p class="muted">The average lag is projected onto upcoming moons to forecast the next likely top and bottom, with an uncertainty window.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section style="background:var(--bg-soft);border-block:1px solid var(--line)">
+      <div class="wrap center">
+        <h2>What the data actually shows</h2>
+        <p class="muted">On the most selective settings (one major swing per lunar cycle, whole history):</p>
+        <div class="stats">
+          <div class="stat"><div class="num">~3 days</div><div class="lbl">average top lag after the full moon</div></div>
+          <div class="stat"><div class="num">±9 days</div><div class="lbl">spread — the pattern is noisy</div></div>
+          <div class="stat"><div class="num">2014→</div><div class="lbl">full BTC-USD history analysed</div></div>
+        </div>
+        <p class="disclaimer">
+          A small positive lag with a large spread means the effect is weak and not tradable on its own.
+          The tool lets you tighten or loosen the definition of a "top" and watch how robust the pattern is.
+        </p>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2>Learn more</h2>
+        <div class="grid">
+          <a class="card" href="/moon-phases.html" style="color:inherit">
+            <span class="emoji">🌗</span>
+            <h3>Moon phases explained</h3>
+            <p class="muted">The 29.5-day lunar cycle, what full and new moons are, and why traders watch them.</p>
+          </a>
+          <a class="card" href="/bitcoin-history.html" style="color:inherit">
+            <span class="emoji">📈</span>
+            <h3>Bitcoin price history</h3>
+            <p class="muted">Halving cycles, volatility, and the boom-bust rhythm that makes BTC a natural test case.</p>
+          </a>
+          <a class="card" href="/methodology.html" style="color:inherit">
+            <span class="emoji">🔬</span>
+            <h3>The methodology</h3>
+            <p class="muted">Swing-pivot detection, signed-lag statistics, and how the predictions are built.</p>
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="wrap">
+        <h2>Frequently asked questions</h2>
+        <details class="faq" open>
+          <summary>Do full moons cause Bitcoin tops?</summary>
+          <p>There's no established causal link between lunar phases and markets. This project treats it as a testable pattern: it detects real swing highs and measures their distance from the nearest full moon. On strict settings the average top lands a few days after the full moon — but with a wide spread, so it's a weak tendency, not a rule.</p>
+        </details>
+        <details class="faq">
+          <summary>How does it predict future tops and bottoms?</summary>
+          <p>It averages the signed lag between past full moons and tops (and new moons and bottoms), then projects that lag onto upcoming moon dates, drawing a predicted date with a ±1 standard-deviation window.</p>
+        </details>
+        <details class="faq">
+          <summary>Where does the price and moon data come from?</summary>
+          <p>Bitcoin daily prices come from Yahoo Finance; precise full/new moon timestamps are computed astronomically with the <code>ephem</code> library — no hand-entered dates.</p>
+        </details>
+        <details class="faq">
+          <summary>Is this financial advice?</summary>
+          <p>No. It's an educational, exploratory tool. Lunar phases have no proven effect on asset prices and nothing here should drive investment decisions.</p>
+        </details>
+      </div>
+    </section>
+
+    <section class="center">
+      <div class="wrap">
+        <h2>Try it yourself</h2>
+        <p class="muted">Adjust the swing sensitivity, matching window and horizon — and watch the pattern hold or dissolve.</p>
+        <a class="btn btn-primary" href="/app/">Launch the live tool →</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site">
+    <div class="wrap">
+      <div class="cols">
+        <div>
+          <strong style="color:var(--ink)">🌕 Bitcoin vs the Moon</strong>
+          <p style="max-width:320px">An open experiment in lunar-cycle market analysis. Educational only — not financial advice.</p>
+        </div>
+        <div>
+          <strong style="color:var(--ink)">Explore</strong><br>
+          <a href="/moon-phases.html">Moon phases</a><br>
+          <a href="/bitcoin-history.html">Bitcoin history</a><br>
+          <a href="/methodology.html">Methodology</a><br>
+          <a href="/app/">Launch the tool</a>
+        </div>
+      </div>
+      <div class="credit">
+        Developed by <a href="https://darrenk.uk" target="_blank" rel="noopener">Darren Kandekore</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>

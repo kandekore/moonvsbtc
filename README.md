@@ -76,46 +76,79 @@ Run the analysis engine standalone (no UI) for a quick text summary:
 .venv/bin/python moon_engine.py
 ```
 
+## SEO & site architecture
+
+Streamlit apps are **not indexable** — they render client-side over a WebSocket,
+the `<head>` is fixed, and there are no crawlable URLs. So the project is split
+into two tiers:
+
+```
+/            → static crawlable HTML site  (site/)   ← all the SEO weight
+/app/        → the interactive Streamlit tool        ← linked from the site
+```
+
+The **`site/`** folder is a fast, self-contained static site (system fonts, no
+external requests) carrying the search visibility:
+
+| Page | Purpose |
+|------|---------|
+| `site/index.html` | Landing page — hypothesis, key findings, FAQ, CTA to the tool. |
+| `site/moon-phases.html` | Content: the lunar cycle, full/new moons, market lore. |
+| `site/bitcoin-history.html` | Content: halving cycles, bull/bear markets, volatility. |
+| `site/methodology.html` | Content: swing-pivot detection, signed-lag stats, prediction. |
+| `site/robots.txt`, `site/sitemap.xml` | Crawl directives + sitemap. |
+| `site/assets/og-image.png` | 1200×630 Open Graph share image (regenerate with `site/make_og_image.py`). |
+| `site/assets/style.css`, `favicon.svg` | Shared styling + icon. |
+
+Every page ships: a unique keyword-rich `<title>` + meta description, canonical
+URL, Open Graph + Twitter Card tags, and **JSON-LD structured data**
+(`WebSite`, `WebApplication`, `Article`/`TechArticle`, `BreadcrumbList`,
+`FAQPage`) for rich results.
+
+> **Set your domain.** The canonical/OG URLs use `https://moonvsbtc.darrenk.uk`.
+> If you deploy elsewhere, find-and-replace that host across `site/` and
+> `deploy/`, then regenerate the OG image.
+
 ## Deployment
 
-This is a **Python/Streamlit** app — it runs its own web server, so Apache/Nginx
-act only as a reverse proxy in front of it (they don't "host" it directly).
+The interactive tool is a **Python/Streamlit** app that runs its own web server;
+Apache serves the static `site/` at the root and reverse-proxies the tool at
+`/app/`.
 
-### Option A — Docker (recommended, portable)
+### Option A — Docker (the tool, portable)
 
 ```bash
 docker build -t moonvsbtc .
 docker run -d --name moonvsbtc -p 8501:8501 --restart unless-stopped moonvsbtc
 ```
 
-Open `http://your-server:8501`. Put Nginx/Apache in front for a domain + HTTPS.
+Runs just the Streamlit tool. Put Nginx/Apache in front for the static site + HTTPS.
 
-### Option B — systemd service + Apache reverse proxy
+### Option B — static site + systemd service + Apache (full setup)
 
 ```bash
 # clone to /opt/moonvsbtc, create venv
 sudo git clone <your-repo> /opt/moonvsbtc && cd /opt/moonvsbtc
 sudo python3 -m venv .venv && sudo .venv/bin/pip install -r requirements.txt
 
-# run as a service (edit paths/User in the unit first if needed)
+# run the tool as a service (already sets --server.baseUrlPath=app)
 sudo cp deploy/moonvsbtc.service /etc/systemd/system/
 sudo systemctl daemon-reload && sudo systemctl enable --now moonvsbtc
 
-# expose it on your domain via Apache (WebSocket-aware proxy)
-sudo a2enmod proxy proxy_http proxy_wstunnel rewrite
+# Apache: static site at /, tool proxied at /app/ (WebSocket-aware)
+sudo a2enmod proxy proxy_http proxy_wstunnel rewrite headers
 sudo cp deploy/apache-moonvsbtc.conf /etc/apache2/sites-available/moonvsbtc.conf
 sudo a2ensite moonvsbtc && sudo systemctl reload apache2
-# then: sudo certbot --apache -d moon.yourdomain.com   # for HTTPS
+# then: sudo certbot --apache -d moonvsbtc.darrenk.uk   # for HTTPS
 ```
 
-### Option C — Streamlit Community Cloud (zero server admin)
+### Option C — Streamlit Community Cloud (tool only, zero admin)
 
-Push this repo to GitHub, then deploy at
-[share.streamlit.io](https://share.streamlit.io) — point it at `app.py`. Free and
-public; no Docker or proxy needed.
+Push to GitHub, deploy at [share.streamlit.io](https://share.streamlit.io)
+pointing at `app.py`. Host `site/` anywhere static (GitHub Pages, Netlify) and
+point its "Launch Tool" links at the Streamlit Cloud URL.
 
-Deployment files live in `deploy/` and the repo root:
-`Dockerfile`, `.dockerignore`, `.streamlit/config.toml`,
+Deployment files: `Dockerfile`, `.dockerignore`, `.streamlit/config.toml`,
 `deploy/moonvsbtc.service`, `deploy/apache-moonvsbtc.conf`.
 
 ## Files

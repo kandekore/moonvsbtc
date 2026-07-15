@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Methodology — How We Measure the Moon-to-Bitcoin Lag</title>
+  <meta name="description" content="The full method behind the Bitcoin vs Moon tool: how true swing tops and bottoms are detected with signal processing, matched to full and new moons, turned into a signed-lag statistic, and projected forward to predict future turning points.">
+  <meta name="keywords" content="swing high low detection, find_peaks, price pivot detection, moon phase correlation method, bitcoin turning point prediction, signed lag analysis">
+  <meta name="author" content="Darren Kandekore">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <link rel="canonical" href="https://moonvsbtc.darrenk.uk/methodology.html">
+
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Bitcoin vs the Moon">
+  <meta property="og:title" content="Methodology — How We Measure the Moon-to-Bitcoin Lag">
+  <meta property="og:description" content="Swing-pivot detection, moon matching, signed-lag statistics and forward prediction — the full method, in plain English.">
+  <meta property="og:url" content="https://moonvsbtc.darrenk.uk/methodology.html">
+  <meta property="og:image" content="https://moonvsbtc.darrenk.uk/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://moonvsbtc.darrenk.uk/assets/og-image.png">
+
+  <meta name="theme-color" content="#0b0d14">
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/style.css">
+
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Methodology — How We Measure the Moon-to-Bitcoin Lag",
+    "description": "How the tool detects swing tops and bottoms, matches them to moons, and predicts future turning points.",
+    "author": { "@type": "Person", "name": "Darren Kandekore", "url": "https://darrenk.uk" },
+    "publisher": { "@type": "Person", "name": "Darren Kandekore" },
+    "mainEntityOfPage": "https://moonvsbtc.darrenk.uk/methodology.html",
+    "image": "https://moonvsbtc.darrenk.uk/assets/og-image.png"
+  }
+  </script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "BreadcrumbList",
+    "itemListElement": [
+      { "@type": "ListItem", "position": 1, "name": "Home", "item": "https://moonvsbtc.darrenk.uk/" },
+      { "@type": "ListItem", "position": 2, "name": "Methodology", "item": "https://moonvsbtc.darrenk.uk/methodology.html" }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <header class="site">
+    <div class="wrap nav">
+      <a class="brand" href="/">🌕 Bitcoin&nbsp;vs&nbsp;the&nbsp;Moon</a>
+      <nav aria-label="Primary">
+        <ul>
+          <li><a href="/moon-phases.html">Moon Phases</a></li>
+          <li><a href="/bitcoin-history.html">BTC History</a></li>
+          <li><a href="/methodology.html" aria-current="page">Methodology</a></li>
+          <li><a class="cta" href="/app/">Launch Tool</a></li>
+        </ul>
+      </nav>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <nav class="crumbs" aria-label="Breadcrumb">
+      <a href="/">Home</a> › Methodology
+    </nav>
+
+    <article class="prose">
+      <h1>Methodology</h1>
+      <p class="muted">How the tool turns "full moons cause tops" from a vibe into a measured,
+      falsifiable number — and how it builds its forward predictions.</p>
+
+      <h2>1. Price &amp; moon data</h2>
+      <ul>
+        <li><strong>Bitcoin prices:</strong> daily BTC-USD closes from Yahoo Finance, back to 2014.</li>
+        <li><strong>Moon dates:</strong> the exact time of every full and new moon, computed with
+        the <code>ephem</code> astronomy library — not calendar approximations.</li>
+      </ul>
+
+      <h2>2. Detecting <em>true</em> swing tops and bottoms</h2>
+      <p>The naive approach — "the highest price in the two weeks around each full moon" — is
+      circular: it <em>guarantees</em> a high near every moon whether or not one really belongs
+      there. Instead the tool finds genuine <strong>swing pivots</strong> in the price series itself
+      using peak detection (<code>scipy.signal.find_peaks</code>), governed by two controls:</p>
+      <table>
+        <thead><tr><th>Control</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Minimum spacing</strong></td><td>How far apart two pivots must be. Larger = fewer, more significant tops/bottoms.</td></tr>
+          <tr><td><strong>Minimum prominence</strong></td><td>How far a swing must stand out from the surrounding price (as a % of price). Filters out insignificant wiggles.</td></tr>
+        </tbody>
+      </table>
+      <p>On the default settings — one pivot per lunar cycle, 15% prominence — only the major
+      turning points survive.</p>
+
+      <h2>3. Matching moons to pivots</h2>
+      <p>Each <strong>full moon</strong> is matched to the nearest swing <strong>high</strong>, and
+      each <strong>new moon</strong> to the nearest swing <strong>low</strong>, provided one exists
+      within a maximum lag (default 14 days ≈ half a lunar cycle). That cap stops a top being
+      mis-assigned to a moon on the far side of the cycle.</p>
+      <p>The key quantity recorded is the <strong>signed offset</strong>:</p>
+      <blockquote>offset = (pivot date − moon date), in days<br>
+      negative = the turning point came <em>before</em> the moon · positive = it came <em>after</em></blockquote>
+      <p>The sign is what makes the "tops come a few days <em>after</em> the full moon" claim
+      testable — an unsigned distance would throw that information away.</p>
+
+      <h2>4. The statistics</h2>
+      <p>Across all matched pairs the tool reports the <strong>mean</strong>, <strong>median</strong>
+      and <strong>standard deviation</strong> of the offsets, plus a histogram of how they're
+      distributed. Reading it:</p>
+      <ul>
+        <li>A mean near zero with a wide spread → turning points scatter symmetrically around the
+        moon: <em>no real timing edge</em>.</li>
+        <li>A clearly positive mean → tops genuinely tend to lag the full moon.</li>
+        <li>The standard deviation is the honesty check — a "3 days after" average with a ±9-day
+        spread is a weak tendency, not a rule.</li>
+      </ul>
+
+      <h2>5. Predicting future turning points</h2>
+      <p>Prediction is deliberately simple, so it can't overfit:</p>
+      <blockquote>predicted top = next full moon + average top-lag<br>
+      predicted bottom = next new moon + average bottom-lag</blockquote>
+      <p>Each prediction is drawn as a date plus a <strong>±1 standard-deviation window</strong>, so
+      the uncertainty is always visible. The search also looks back one lunar cycle, so the phase
+      you're <em>currently in</em> still appears and is flagged as an active window until it elapses.</p>
+
+      <div class="callout warn">
+        <strong>What this method can and can't tell you.</strong> It can measure whether a timing
+        relationship exists in the historical data and how strong it is. It <em>cannot</em>
+        establish causation, and a pattern that held in the past can break at any time. Treat every
+        prediction as a curiosity, not a signal.
+      </div>
+
+      <h2>Reproducibility</h2>
+      <p>The analysis engine is open and deterministic: the same settings always produce the same
+      result. Every matched pair and prediction can be exported as CSV from the live tool for
+      independent checking.</p>
+
+      <p><a class="btn btn-primary" href="/app/">Run the analysis yourself →</a></p>
+    </article>
+  </main>
+
+  <footer class="site">
+    <div class="wrap">
+      <div class="credit">
+        Developed by <a href="https://darrenk.uk" target="_blank" rel="noopener">Darren Kandekore</a>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
