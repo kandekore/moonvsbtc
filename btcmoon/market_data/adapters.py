@@ -65,6 +65,42 @@ def get_price_history(
         raise MarketError(f"Could not fetch {symbol}: {exc}") from exc
 
 
+def get_ohlc_history(
+    symbol: str = "BTC-USD",
+    start: str = HISTORY_START,
+    force_refresh: bool = False,
+) -> pd.DataFrame:
+    """Daily OHLCV history: ``open, high, low, close, volume`` on a DatetimeIndex.
+
+    REQUIRED by the New-Moon / local-low protocol, which is defined on intraday
+    extremes (daily LOW), not on closing prices. ``get_price_history`` returns
+    close only and is for the legacy website methodology - do not substitute one
+    for the other.
+    """
+    path = _cache_path(symbol + "_ohlc")
+    if not force_refresh and _cache_is_fresh(path):
+        return _read_cache(path)
+
+    try:
+        import yfinance as yf
+
+        raw = yf.download(symbol, start=start, progress=False, auto_adjust=True)
+        if raw is None or raw.empty:
+            raise MarketError(f"No OHLC data for {symbol}")
+        df = raw.copy()
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c[0] for c in df.columns]
+        df = df[["Open", "High", "Low", "Close", "Volume"]].rename(columns=str.lower)
+        df.index = pd.to_datetime(df.index).tz_localize(None).normalize()
+        df = df[~df.index.duplicated(keep="last")].sort_index().dropna()
+        df.to_csv(path)
+        return df
+    except Exception as exc:
+        if path.exists():
+            return _read_cache(path)
+        raise MarketError(f"Could not fetch OHLC for {symbol}: {exc}") from exc
+
+
 def _read_cache(path: pathlib.Path) -> pd.DataFrame:
     df = pd.read_csv(path, index_col=0, parse_dates=True)
     df.index.name = "Date"

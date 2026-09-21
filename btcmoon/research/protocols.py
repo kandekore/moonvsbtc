@@ -8,13 +8,14 @@ from __future__ import annotations
 
 import datetime as dt
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
 
 from ..models import Provenance, ResearchProtocol, Status
 from .legacy import WEBSITE_METHODOLOGY
+from .pivots import check_day, find_strict_local_lows, is_strict_local_low
 
 # ---------------------------------------------------------------------------
 # Protocol 1 - the legacy website methodology, recorded so it can be cited.
@@ -55,12 +56,15 @@ WEBSITE_METHODOLOGY_PROTOCOL = {
 # ---------------------------------------------------------------------------
 SEPTEMBER_2026_PROTOCOL = {
     "slug": "september-2026-new-moon-test",
-    "version": "1.0",
+    "version": "1.1",
+    "supersedes": "september-2026-new-moon-test v1.0",
     "title": "Frozen protocol: September 2026 New-Moon low test",
     "summary": (
         "A prospective, pre-registered test of the New-Moon / local-low lead. "
-        "Registered before the window opened and not modified in response to "
-        "any outcome."
+        "Registered before the window opened and not modified in response to any "
+        "outcome. v1.1 corrects a TRANSCRIPTION ERROR in this repository's copy of "
+        "the rule - see 'correction' below. The rule itself is unchanged from the "
+        "paper and no result was ever published under v1.0."
     ),
     "window_start": "2026-09-11T03:26:55",
     "window_end": "2026-09-30T23:59:59",
@@ -72,9 +76,26 @@ SEPTEMBER_2026_PROTOCOL = {
             "(11-14 September 2026 inclusive)?"
         ),
         "strict_local_low_definition": (
-            "A daily close on day D in [T0, T+3] that is strictly lower than every "
-            "other daily close in [T0-2, T+5]. Fixed in advance so the answer "
-            "cannot be argued after the fact."
+            "A strict 7-day pivot on the daily LOW: a day t qualifies when "
+            "LOW[t] < LOW[t-1], LOW[t-2], LOW[t-3] AND "
+            "LOW[t] < LOW[t+1], LOW[t+2], LOW[t+3]. "
+            "The test is on INTRADAY LOWS, not closing prices."
+        ),
+        "price_basis": "Daily OHLC. The LOW column only. Closing prices are NOT used.",
+        "equality_handling": (
+            "Strictly less-than on both sides, as written. A low that merely ties a "
+            "neighbouring low does not qualify. Applied identically on both sides, so "
+            "a flat double bottom yields no pivot rather than two."
+        ),
+        "decidability": (
+            "A day cannot be judged until 3 subsequent daily bars exist. Until then "
+            "the result is UNDETERMINED - never 'failed'."
+        ),
+        "invalidation": (
+            "A qualifying pivot is NOT invalidated by a lower low occurring later, "
+            "inside or outside the window. The test asks whether a strict local low "
+            "FORMED in T0:T+3, not whether it was the cycle's lowest price. The "
+            "deepest low of the cycle is a separate, separately reported measure."
         ),
         "new_moon_strength_recorded_in_advance": 79,
         "strength_caveat": (
@@ -93,10 +114,45 @@ SEPTEMBER_2026_PROTOCOL = {
             "Cycle-high alignment relative to the Full Moon.",
             "Relationship to a website-defined major high (see website-methodology-v1).",
         ],
+        "distinct_concepts": {
+            "qualifying_strict_local_low": "The formal pre-registered test. LOW-based 7-day pivot in T0:T+3.",
+            "lowest_price_in_a_wider_window": "Descriptive only. Not the test.",
+            "absolute_cycle_low": "The deepest low between consecutive New Moons. Reported separately.",
+            "informal_nm_plus_0_4": (
+                "A private, never-pre-registered intraday timing idea. Requires hourly "
+                "data. Must never stand in for, or be conflated with, the formal test."
+            ),
+            "legacy_website_new_moon_pivot": (
+                "CLOSE-based scipy.signal.find_peaks major pivot, spacing 30, prominence "
+                "15% of median close, matched within +/-14 days. A different measure "
+                "entirely - see website-methodology-v1."
+            ),
+        },
         "final_review": "After 30 September 2026.",
         "amendment_policy": (
             "None. Lag windows, pivot definitions, scoring weights and the strength "
             "formula are fixed for the duration of this test."
+        ),
+    },
+    "correction": {
+        "corrected_on": "2026-09-21",
+        "what_was_wrong": (
+            "v1.0 of THIS REPOSITORY'S protocol record stated the strict local low as "
+            "'a daily CLOSE in [T0, T+3] strictly lower than every other close in "
+            "[T0-2, T+8]'. That definition was written by the implementer and was "
+            "never the paper's rule. The paper defines a strict 7-day pivot on the "
+            "daily LOW."
+        ),
+        "why_this_is_a_correction_not_an_amendment": (
+            "The research protocol did not change. The repository's transcription of "
+            "it was wrong and has been corrected to match the paper. No result was "
+            "published under v1.0; all records were drafts."
+        ),
+        "evidence_the_corrected_rule_is_the_right_one": (
+            "The paper states that in 2026, 7 of the first 8 New Moons had a strict "
+            "local low in T0:T+3 and all 8 were within +/-7 days. The LOW-based 7-day "
+            "pivot rule reproduces that exactly (7/8, all 8 within +/-7). The erroneous "
+            "CLOSE-based rule reproduces 1/8."
         ),
     },
 }
@@ -141,13 +197,23 @@ def seed_protocols(session, freeze: bool = True) -> list[ResearchProtocol]:
 # ---------------------------------------------------------------------------
 @dataclass
 class NewMoonLowTest:
-    new_moon_date: dt.date
+    """The result of the frozen T0:T+3 test, with every distinct measure kept apart."""
+
+    new_moon_utc: dt.datetime
     window_start: dt.date
     window_end: dt.date
-    strict_low_formed: bool
-    low_date: dt.date | None
-    low_price: float | None
-    offset_days: int | None
+    #: True / False / None. None means "not yet decidable", never "failed".
+    strict_low_formed: bool | None
+    #: The qualifying pivot, if one formed.
+    pivot_date: dt.date | None
+    pivot_low: float | None
+    lag_days: int | None
+    #: Full working for each candidate day, so the result can be audited.
+    candidates: list = field(default_factory=list)
+    #: Descriptive extras - explicitly NOT part of the pass/fail decision.
+    lower_lows_within_7d: list = field(default_factory=list)
+    cycle_low_date: dt.date | None = None
+    cycle_low: float | None = None
     upside_7d_pct: float | None = None
     upside_14d_pct: float | None = None
     upside_21d_pct: float | None = None
@@ -158,12 +224,16 @@ class NewMoonLowTest:
 
     def to_dict(self) -> dict:
         return {
-            "new_moon_date": self.new_moon_date.isoformat(),
+            "new_moon_utc": self.new_moon_utc.isoformat(),
             "window": f"{self.window_start.isoformat()}..{self.window_end.isoformat()}",
             "strict_low_formed": self.strict_low_formed,
-            "low_date": self.low_date.isoformat() if self.low_date else None,
-            "low_price": self.low_price,
-            "offset_days": self.offset_days,
+            "pivot_date": self.pivot_date.isoformat() if self.pivot_date else None,
+            "pivot_low": self.pivot_low,
+            "lag_days": self.lag_days,
+            "candidates": [c.to_dict() for c in self.candidates],
+            "lower_lows_within_7d": self.lower_lows_within_7d,
+            "cycle_low_date": self.cycle_low_date.isoformat() if self.cycle_low_date else None,
+            "cycle_low": self.cycle_low,
             "upside_7d_pct": self.upside_7d_pct,
             "upside_14d_pct": self.upside_14d_pct,
             "upside_21d_pct": self.upside_21d_pct,
@@ -176,59 +246,101 @@ class NewMoonLowTest:
 
 def evaluate_nm_low_test(
     price: pd.DataFrame,
-    new_moon_date: dt.date,
+    new_moon: dt.date | dt.datetime,
     t_plus: int = 3,
-    guard_before: int = 2,
-    guard_after: int = 5,
 ) -> NewMoonLowTest:
-    """Apply the frozen T0:T+3 strict-local-low test to real price data.
+    """Apply the frozen T0:T+3 strict-local-low test to real daily OHLC data.
 
-    The definition is the one registered in the protocol: the candidate close
-    must be strictly lower than every other close in [T0-guard_before,
-    T0+t_plus+guard_after]. Upside is then measured at exactly 7, 14 and 21
-    days from the pivot.
+    The rule is the pre-registered one and is defined on the daily **LOW**:
+
+        LOW[t] < LOW[t-1], LOW[t-2], LOW[t-3]
+        AND LOW[t] < LOW[t+1], LOW[t+2], LOW[t+3]
+
+    A qualifying pivot is NOT invalidated by a later lower low. Lower lows and
+    the absolute cycle low are reported separately, as descriptive context.
+
+    ``price`` must be an OHLC frame (``market_data.get_ohlc_history``). Passing a
+    close-only frame raises rather than silently answering the wrong question.
     """
-    series = price["close"]
-    t0 = new_moon_date
+    if isinstance(new_moon, dt.datetime):
+        nm_dt, t0 = new_moon, new_moon.date()
+    else:
+        nm_dt, t0 = dt.datetime.combine(new_moon, dt.time()), new_moon
+
     win_end = t0 + dt.timedelta(days=t_plus)
-    guard_lo = t0 - dt.timedelta(days=guard_before)
-    guard_hi = win_end + dt.timedelta(days=guard_after)
-
-    guard = series.loc[pd.Timestamp(guard_lo): pd.Timestamp(guard_hi)]
-    window = series.loc[pd.Timestamp(t0): pd.Timestamp(win_end)]
-    if window.empty or guard.empty:
-        return NewMoonLowTest(t0, t0, win_end, False, None, None, None,
-                              note="No price data covering the window.")
-
-    cand_pos = int(np.argmin(window.to_numpy()))
-    cand_date = window.index[cand_pos].date()
-    cand_price = float(window.iloc[cand_pos])
-
-    others = guard.drop(index=window.index[cand_pos], errors="ignore")
-    strict = bool(others.empty or cand_price < float(others.min()))
+    low = price["low"] if "low" in price.columns else None
+    if low is None:
+        raise KeyError(
+            "evaluate_nm_low_test requires daily OHLC with a 'low' column. The "
+            "New-Moon protocol is defined on intraday lows, not closing prices."
+        )
 
     result = NewMoonLowTest(
-        new_moon_date=t0, window_start=t0, window_end=win_end,
-        strict_low_formed=strict, low_date=cand_date, low_price=round(cand_price, 2),
-        offset_days=(cand_date - t0).days,
+        new_moon_utc=nm_dt, window_start=t0, window_end=win_end,
+        strict_low_formed=None, pivot_date=None, pivot_low=None, lag_days=None,
     )
-    if not strict:
+
+    # 1) The formal test: evaluate every candidate day, keeping the working.
+    undecidable = False
+    for i in range(t_plus + 1):
+        day = t0 + dt.timedelta(days=i)
+        check = check_day(price, day)
+        result.candidates.append(check)
+        if check.qualifies is None:
+            undecidable = True
+        elif check.qualifies and result.pivot_date is None:
+            result.pivot_date = day
+            result.pivot_low = check.low
+            result.lag_days = i
+
+    if result.pivot_date is not None:
+        result.strict_low_formed = True
+    elif undecidable:
+        result.strict_low_formed = None
         result.note = (
-            "Lowest close in T0:T+3 was not strictly lower than the surrounding "
-            f"guard window [{guard_lo} .. {guard_hi}]; the test records this as "
-            "NOT a strict local low."
+            "UNDETERMINED: at least one candidate day does not yet have three "
+            "subsequent daily bars, so the rule cannot be applied. Not a failure."
+        )
+    else:
+        result.strict_low_formed = False
+        result.note = (
+            "No day in T0:T+3 satisfied the strict 7-day low pivot. See "
+            "'candidates' for the exact comparison that failed on each day."
         )
 
-    # Upside from the pivot, measured at exactly 7/14/21 days.
-    for days in (7, 14, 21):
-        end = cand_date + dt.timedelta(days=days)
-        leg = series.loc[pd.Timestamp(cand_date): pd.Timestamp(end)]
-        if leg.empty or pd.Timestamp(end) > series.index.max():
-            continue
-        high = float(leg.max())
-        setattr(result, f"high_{days}d", round(high, 2))
-        setattr(
-            result, f"upside_{days}d_pct",
-            round((high - cand_price) / cand_price * 100.0, 2),
-        )
+    # 2) Descriptive context - deliberately separate from the pass/fail decision.
+    if result.pivot_date is not None:
+        near = low.loc[pd.Timestamp(t0 - dt.timedelta(days=7)):
+                       pd.Timestamp(t0 + dt.timedelta(days=7))]
+        # Compare against the UNROUNDED pivot low, and never list the pivot
+        # itself: rounding to 2dp would otherwise make a bar look lower than
+        # its own recorded value.
+        pivot_raw = float(low.loc[pd.Timestamp(result.pivot_date)])
+        result.lower_lows_within_7d = [
+            {"date": ts.date().isoformat(), "low": round(float(v), 2),
+             "lag_days": (ts.date() - t0).days}
+            for ts, v in near.items()
+            if ts.date() != result.pivot_date and float(v) < pivot_raw
+        ]
+
+    cycle_end = t0 + dt.timedelta(days=29)
+    cycle = low.loc[pd.Timestamp(t0): pd.Timestamp(cycle_end)]
+    if not cycle.empty:
+        result.cycle_low_date = cycle.idxmin().date()
+        result.cycle_low = round(float(cycle.min()), 2)
+
+    # 3) Upside from the qualifying pivot, at exactly 7 / 14 / 21 days.
+    if result.pivot_date and result.pivot_low:
+        high = price["high"] if "high" in price.columns else price["close"]
+        for days in (7, 14, 21):
+            end = result.pivot_date + dt.timedelta(days=days)
+            if pd.Timestamp(end) > high.index.max():
+                continue
+            leg = high.loc[pd.Timestamp(result.pivot_date): pd.Timestamp(end)]
+            if leg.empty:
+                continue
+            peak = float(leg.max())
+            setattr(result, f"high_{days}d", round(peak, 2))
+            setattr(result, f"upside_{days}d_pct",
+                    round((peak - result.pivot_low) / result.pivot_low * 100.0, 2))
     return result

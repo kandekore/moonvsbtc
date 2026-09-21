@@ -149,7 +149,8 @@ def _protocol_note(session, period_start: dt.date) -> str:
     notes = []
     when = dt.datetime.combine(period_start, dt.time(12, 0))
     for proto in session.query(ResearchProtocol).filter(
-        ResearchProtocol.is_frozen.is_(True)
+        ResearchProtocol.is_frozen.is_(True),
+        ResearchProtocol.status != Status.ARCHIVED,
     ).all():
         if proto.window_start and proto.window_end and proto.window_start <= when <= proto.window_end:
             notes.append(

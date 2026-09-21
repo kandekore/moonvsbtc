@@ -13,6 +13,7 @@ import pytest
 
 FIXTURES = pathlib.Path(__file__).parent / "fixtures"
 PRICE_CSV = FIXTURES / "btc_daily_20260921.csv"
+OHLC_CSV = FIXTURES / "btc_ohlc_20260921.csv"
 
 # Point the app at a throwaway database *before* btcmoon.db is imported.
 _tmpdir = tempfile.mkdtemp(prefix="btcmoon-tests-")
@@ -28,6 +29,17 @@ def price_df():
     import pandas as pd
 
     df = pd.read_csv(PRICE_CSV, index_col=0, parse_dates=True)
+    df.index.name = "Date"
+    return df
+
+
+@pytest.fixture(scope="session")
+def ohlc_df():
+    """Frozen daily OHLC. REQUIRED by the New-Moon protocol, which is defined on
+    intraday lows - ``price_df`` (close only) must never be used for it."""
+    import pandas as pd
+
+    df = pd.read_csv(OHLC_CSV, index_col=0, parse_dates=True)
     df.index.name = "Date"
     return df
 

@@ -123,41 +123,115 @@ Tuning a formula to reproduce a historical number would breach the constitution.
 
 ---
 
-## 4. The frozen September 2026 protocol
+## 4. Two pivot definitions — do not confuse them
 
-Registered before the window opened, in
-`btcmoon/research/protocols.py:SEPTEMBER_2026_PROTOCOL`:
+This project uses **two different pivot definitions** for two different questions.
+Mixing them produces wrong answers, and did once (see §4.3).
 
-- New Moon **11 Sep 2026 03:27 UTC** (computed exactly: 03:26:55).
-- **Primary test:** does a strict local low form in **T0:T+3** (11–14 Sep)?
-- **Strict local low** = a daily close on a day in [T0, T+3] strictly lower than
-  every other close in [T0−2, T+8]. Fixed in advance.
-- New-Moon strength 79/100 recorded in advance — **context only, not evidence
-  that a low must occur**.
+### 4.1 Legacy website methodology — CLOSE-based
+
+Used for the **published Full-Moon lag benchmarks**. Implemented in
+`moon_engine.py`, called via `btcmoon/research/legacy.py`.
+
+Daily **Close** · `scipy.signal.find_peaks` · spacing 30 · prominence 15% of median
+close · matched within ±14 days. Produces +4.4 d (n=5) and +3.2 d / 71% (n=31).
+
+### 4.2 New-Moon / local-low protocol — LOW-based
+
+Used for the **frozen prospective New-Moon test**. Implemented in
+`btcmoon/research/pivots.py`, evaluated by `evaluate_nm_low_test`.
+
+A strict 7-day pivot on the daily **LOW**:
+
+```
+LOW[t] < LOW[t-1], LOW[t-2], LOW[t-3]
+AND
+LOW[t] < LOW[t+1], LOW[t+2], LOW[t+3]
+```
+
+- **Strict** `<` on both sides. A tie does **not** qualify, on either side.
+- A day is **UNDETERMINED** until three subsequent daily bars exist. Undetermined
+  is never recorded as a failure.
+- Requires daily **OHLC** (`market_data.get_ohlc_history`). Passing a close-only
+  frame raises rather than silently answering the wrong question.
+
+**Validation:** the paper states that in 2026, 7 of the first 8 New Moons had a
+strict local low in T0:T+3 and all 8 were within ±7 days. This rule reproduces
+that **exactly** (7/8 and 8/8). The close-based rule reproduces 1/8.
+
+### 4.3 Correction log — 21 September 2026
+
+**What happened.** The first implementation of the New-Moon test used daily
+**Close** with an invented guard-window rule ("lowest close in T0:T+3, strictly
+below every close in [T0−2, T+8]"). That definition was written by the
+implementer and was **never the paper's rule**. It was then recorded in the
+frozen protocol as though it had been pre-registered.
+
+**Consequence.** Both August and September were classified as **failures**. Both
+were wrong. Under the correct rule both **passed**.
+
+**Fix.** Protocol superseded to **v1.1** with the correct LOW-based definition;
+v1.0 archived under a suffixed slug rather than deleted, so the audit trail
+survives. `bootstrap()` repairs existing databases via
+`repair_protocol_transcription()`. Regression tests now assert the definition is
+LOW-based, that a close-only frame raises, and that the 7/8 claim reproduces.
+
+**This was a correction to a transcription, not an amendment to the protocol.**
+The paper's rule never changed. Nothing had been published under v1.0 — every
+record was a draft.
+
+### 4.4 The five concepts that must stay distinct
+
+| Concept | What it is |
+|---|---|
+| **Qualifying strict local low** | The formal test. LOW-based 7-day pivot in T0:T+3. |
+| Lowest price in a wider window | Descriptive only. **Not** the test. |
+| Absolute / cycle low | Deepest low between consecutive New Moons. Separate measure. |
+| Informal NM+0.4 | Private, never pre-registered, intraday. Needs hourly data. Must never stand in for the formal test. |
+| Legacy website NM pivot | CLOSE-based `find_peaks` major pivot. A different measure entirely. |
+
+**A qualifying pivot is not invalidated by a later lower low.** The test asks
+whether a strict local low *formed* in T0:T+3, not whether it was the cycle's
+lowest price.
+
+### 4.5 The frozen September 2026 protocol
+
+Registered before the window opened
+(`btcmoon/research/protocols.py:SEPTEMBER_2026_PROTOCOL`):
+
+- New Moon **11 Sep 2026 03:27 UTC** (computed: 03:26:55).
+- **Primary test:** does a strict local low (§4.2) form in **T0:T+3** (11–14 Sep)?
+- Strength 79/100 recorded in advance — **context only**.
 - If a qualifying low forms, measure maximum upside at exactly **7, 14 and 21
   days** from the pivot.
-- Full Moon **26 Sep 2026 16:49 UTC** (computed: 16:48:57).
-- Then assess waxing return, cycle-high alignment and the website-defined
-  major-high relationship. Final review after 30 Sep.
+- Full Moon **26 Sep 2026 16:49 UTC** (computed: 16:48:57). Final review after 30 Sep.
 - **Amendment policy: none.**
 
-### The verified outcome
+### 4.6 Verified results
 
-**The T0:T+3 test FAILED**, and the system reports it as failed:
+| | August 2026 | September 2026 |
+|---|---|---|
+| New Moon (UTC) | 12 Aug 17:36:39 | 11 Sep 03:26:55 |
+| Qualifying pivot | **14 Aug** | **11 Sep** |
+| Pivot LOW | $62,487.70 | $76,162.91 |
+| Lag | **NM+2** | **NM+0** |
+| Formal result | **PASS** | **PASS** |
+| Lower lows within ±7 d | **none** | 15/16/17 Sep (NM+4/+5/+6) |
+| Absolute cycle low | **$62,487.70 on 14 Aug — the pivot itself** | $74,944.59 on 15 Sep |
+| Max upside +7 / +14 / +21 d | +27.17% / +30.18% / +31.65% | +6.79% / pending / pending |
 
-- Lowest close in the window: **13 Sep, $76,838.16** (NM+2).
-- But a **lower** close came **15 Sep at $75,612.51** (NM+4), outside the window.
-- By the pre-registered rules that is not a strict local low.
+August's contemporaneous note — *"12 Aug New Moon → 14 Aug local low"* — was
+**correct**. An earlier "correction" of it was itself the error.
 
-August 2026 shows the **same shape**: first local low 14 Aug (NM+2), true cycle
-low 16 Aug at $62,818.65 (NM+4). **Two cycles is not evidence** — it is a
-hypothesis worth pre-registering for the next cycle rather than fitting to these two.
+The two cycles then diverged, and that divergence is the point: in August the
+qualifying pivot **was** the cycle low; in September it was **not**. A qualifying
+pivot therefore does not imply the cycle has bottomed. Reporting only "a pivot
+formed" would have called September a clean success; reporting only "a deeper low
+followed" would have called it a failure. Both readings are wrong, which is why
+the two claims are recorded separately.
 
-Keep the paper's formal T0:T+3 protocol **distinct** from the informal private
-NM+0.4-day timing idea. Conflating them after the fact is exactly the
-goalpost-moving the constitution forbids.
-
----
+August's +27% / +30% / +32% upside at 7 / 14 / 21 days from the pivot is also the
+verified basis for the archive's "roughly 30% rally" note.
 
 ## 5. Editorial rules
 

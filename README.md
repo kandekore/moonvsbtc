@@ -69,6 +69,18 @@ tests/              153 tests             manage.py        CLI
 
 ---
 
+## Two pivot definitions
+
+The project deliberately uses **two** pivot definitions for two different
+questions. They must never be swapped (see `PROJECT_CONTEXT.md` §4).
+
+| | Legacy website benchmark | New-Moon / local-low protocol |
+|---|---|---|
+| Basis | daily **CLOSE** | daily **LOW** |
+| Rule | `find_peaks`, spacing 30, prominence 15% of median | `LOW[t] < LOW[t±1,±2,±3]`, strict |
+| Answers | "how long after a Full Moon does a major high print?" | "did a strict local low form in T0:T+3?" |
+| Code | `moon_engine.py` → `research/legacy.py` | `research/pivots.py` |
+
 ## The research methodology
 
 `moon_engine.py` is **provenance-sensitive and deliberately unchanged**. It is the

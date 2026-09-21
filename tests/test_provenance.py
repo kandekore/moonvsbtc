@@ -83,13 +83,13 @@ def test_retrospective_provenances_are_exactly_these_two():
     }
 
 
-def test_seeded_archive_is_draft_and_reconstructed(db_session, price_df):
+def test_seeded_archive_is_draft_and_reconstructed(db_session, ohlc_df):
     """The seed import must never publish itself."""
     from btcmoon.research.protocols import seed_protocols
     from btcmoon.seeds.archive import seed_archive
 
     seed_protocols(db_session)
-    result = seed_archive(db_session, price=price_df)
+    result = seed_archive(db_session, price=ohlc_df)
     assert result["observations"] > 0
 
     for obs in db_session.query(Observation).all():

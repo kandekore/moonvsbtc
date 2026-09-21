@@ -87,11 +87,12 @@ def test_run_job_returns_zero_when_skipped():
 
 
 # --- briefings ------------------------------------------------------------
-def test_briefing_is_produced_without_an_api_key(db_session, monkeypatch, price_df):
+def test_briefing_is_produced_without_an_api_key(db_session, monkeypatch, price_df, ohlc_df):
     """A missing credential degrades the briefing; it never breaks the pipeline."""
     from jobs import briefing as b
 
     monkeypatch.setattr(b, "get_price_history", lambda *a, **k: price_df)
+    monkeypatch.setattr(b, "get_ohlc_history", lambda *a, **k: ohlc_df)
     monkeypatch.setattr(b, "technical_context", lambda p=None: _fake_tech(price_df))
 
     from btcmoon.config import Config
@@ -113,10 +114,11 @@ def test_briefing_is_produced_without_an_api_key(db_session, monkeypatch, price_
     assert result.triage in TriageLevel.ALL
 
 
-def test_briefing_is_private_by_default(db_session, monkeypatch, price_df):
+def test_briefing_is_private_by_default(db_session, monkeypatch, price_df, ohlc_df):
     from jobs import briefing as b
 
     monkeypatch.setattr(b, "get_price_history", lambda *a, **k: price_df)
+    monkeypatch.setattr(b, "get_ohlc_history", lambda *a, **k: ohlc_df)
     monkeypatch.setattr(b, "technical_context", lambda p=None: _fake_tech(price_df))
     result = b.generate_briefing(db_session, BriefingKind.EVENING)
     assert result.visibility == Visibility.PRIVATE
@@ -138,21 +140,25 @@ def test_triage_parsing_recognises_every_level():
         assert level == expected
 
 
-def test_briefing_flags_a_live_protocol_window(db_session, monkeypatch, price_df):
+def test_briefing_flags_a_live_protocol_window(db_session, monkeypatch, price_df, ohlc_df):
     """A frozen protocol inside its window must escalate the triage."""
     from btcmoon.research.protocols import seed_protocols
     from jobs import briefing as b
 
     seed_protocols(db_session)
     monkeypatch.setattr(b, "get_price_history", lambda *a, **k: price_df)
+    monkeypatch.setattr(b, "get_ohlc_history", lambda *a, **k: ohlc_df)
     monkeypatch.setattr(b, "technical_context", lambda p=None: _fake_tech(price_df))
 
     when = dt.datetime(2026, 9, 21, 7, 0)
     result = b.generate_briefing(db_session, BriefingKind.MORNING, when=when)
     assert result.triage == TriageLevel.EXPERIMENT_UPDATE_REQUIRED
     assert "september-2026-new-moon-test" in result.body_markdown
-    # And it reports the honest failure, not a softened version.
-    assert "NO strict local low formed" in result.body_markdown
+    # It reports the qualifying pivot AND, separately, the deeper lows that
+    # followed - without letting the latter overturn the former.
+    assert "qualifying strict local low DID form" in result.body_markdown
+    assert "does NOT invalidate the qualifying pivot" in result.body_markdown
+    assert "Absolute cycle low" in result.body_markdown
 
 
 def _fake_tech(price_df):

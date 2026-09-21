@@ -15,7 +15,9 @@ from btcmoon.ai import AiClient
 from btcmoon.ai.prompts import BRIEFING_SYSTEM
 from btcmoon.astrology import natal_context
 from btcmoon.lunar import lunar_context
-from btcmoon.market_data import MarketError, get_price_history, technical_context
+from btcmoon.market_data import (
+    MarketError, get_ohlc_history, get_price_history, technical_context,
+)
 from btcmoon.models import (
     BriefingKind, Experiment, ExperimentStatus, Prediction, ResearchBriefing,
     ResearchProtocol, Status, TriageLevel, Visibility, utcnow,
@@ -39,12 +41,17 @@ def gather_context(session, when: dt.datetime | None = None) -> dict:
     when = when or utcnow()
     ctx: dict = {"generated_at": when.isoformat(), "date": when.date().isoformat()}
 
-    price = None
+    price = None      # close-only, legacy website methodology
+    ohlc = None       # daily OHLC, required by the New-Moon low protocol
     try:
         price = get_price_history()
         ctx["market"] = technical_context(price)
     except MarketError as exc:
         ctx["market"] = {"error": str(exc)}
+    try:
+        ohlc = get_ohlc_history()
+    except MarketError as exc:
+        ctx["ohlc_error"] = str(exc)
 
     ctx["lunar"] = lunar_context(when).to_dict()
     ctx["natal"] = natal_context(when.date())
@@ -69,17 +76,19 @@ def gather_context(session, when: dt.datetime | None = None) -> dict:
     ]
 
     # Frozen protocol windows, re-evaluated against the latest market data.
+    # The protocol test is defined on intraday LOWS - it must use OHLC, never close.
     ctx["protocol_status"] = []
-    if price is not None:
+    if ohlc is not None:
         for proto in session.query(ResearchProtocol).filter(
-            ResearchProtocol.is_frozen.is_(True)
+            ResearchProtocol.is_frozen.is_(True),
+            ResearchProtocol.status != Status.ARCHIVED,   # skip superseded versions
         ).all():
             rules = json.loads(proto.rules_json or "{}")
             nm_raw = rules.get("new_moon_utc")
             if not nm_raw:
                 continue
-            nm_date = dt.datetime.fromisoformat(nm_raw.replace("Z", "")).date()
-            test = evaluate_nm_low_test(price, nm_date)
+            nm_when = dt.datetime.fromisoformat(nm_raw.replace("Z", ""))
+            test = evaluate_nm_low_test(ohlc, nm_when)
             ctx["protocol_status"].append({
                 "protocol": proto.slug, "version": proto.version,
                 "window_open": bool(
@@ -170,14 +179,34 @@ def deterministic_body(ctx: dict, kind: str) -> tuple[str, str, str, str]:
 
     for proto in ctx.get("protocol_status", []):
         t = proto["test"]
-        state = "a strict local low DID form" if t["strict_low_formed"] else "NO strict local low formed"
+        formed = t["strict_low_formed"]
+        if formed is True:
+            state = (
+                f"a qualifying strict local low DID form on {t['pivot_date']} "
+                f"at LOW ${t['pivot_low']:,.2f} (NM+{t['lag_days']})"
+            )
+        elif formed is False:
+            state = "NO qualifying strict local low formed"
+        else:
+            state = "the test is NOT YET DECIDABLE (fewer than 3 subsequent bars)"
         lines.append(
             f"- [FACT] Frozen protocol `{proto['protocol']}` v{proto['version']}: "
-            f"in window {t['window']}, {state}. Lowest close {t['low_date']} at "
-            f"${t['low_price']:,.2f} (NM{t['offset_days']:+d})."
+            f"in window {t['window']}, {state}."
         )
         if t.get("note"):
             lines.append(f"  - {t['note']}")
+        if t.get("lower_lows_within_7d"):
+            deeper = t["lower_lows_within_7d"]
+            lines.append(
+                f"  - [FACT] Separately: {len(deeper)} lower low(s) within +/-7 days, "
+                f"deepest {min(d['low'] for d in deeper):,.2f}. Per the protocol this "
+                f"does NOT invalidate the qualifying pivot - it is reported as context."
+            )
+        if t.get("cycle_low"):
+            lines.append(
+                f"  - [FACT] Absolute cycle low so far: ${t['cycle_low']:,.2f} on "
+                f"{t['cycle_low_date']} (a separate measure from the formal test)."
+            )
         for horizon in (7, 14, 21):
             val = t.get(f"upside_{horizon}d_pct")
             if val is not None:

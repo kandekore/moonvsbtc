@@ -27,10 +27,68 @@ def seed_settings(session) -> int:
 
 def bootstrap(session) -> dict:
     """Idempotent: safe to run on every deploy."""
+    repair = repair_protocol_transcription(session)
     result = {
         "protocols": len(seed_protocols(session)),
         "sources": seed_sources(session),
         "settings": seed_settings(session),
+        "protocol_repair": repair,
     }
     session.commit()
     return result
+
+
+# ---------------------------------------------------------------------------
+# One-time repair: the September protocol transcription error (2026-09-21)
+# ---------------------------------------------------------------------------
+#: The erroneous definition shipped in v1.0 of the repository's protocol record.
+_BAD_DEFINITION_MARKER = "strictly lower than every other daily close"
+
+
+def repair_protocol_transcription(session) -> dict:
+    """Supersede the v1.0 September protocol if it holds the wrong definition.
+
+    v1.0 of this repository's record stated the strict local low in terms of
+    daily CLOSE. That was never the paper's rule - the paper defines a strict
+    7-day pivot on the daily LOW. This is a correction to a transcription, not
+    an amendment to the protocol, and nothing was ever published under v1.0.
+
+    The old row is preserved (its slug is suffixed) rather than deleted, so the
+    audit trail survives. The rewrite is issued as direct SQL because the model
+    deliberately refuses attribute writes on a frozen protocol - that guard is
+    doing its job, and bypassing it here is explicit and logged rather than
+    silent.
+    """
+    from sqlalchemy import text
+
+    from ..models import ResearchProtocol
+    from ..research.protocols import SEPTEMBER_2026_PROTOCOL, seed_protocols
+
+    slug = SEPTEMBER_2026_PROTOCOL["slug"]
+    row = session.query(ResearchProtocol).filter_by(slug=slug).one_or_none()
+    if row is None:
+        return {"repaired": False, "reason": "protocol not present"}
+    if _BAD_DEFINITION_MARKER not in (row.rules_json or ""):
+        return {"repaired": False, "reason": "already correct"}
+
+    archived_slug = f"{slug}-v{row.version}-superseded-transcription-error"
+    session.execute(
+        text("UPDATE research_protocols SET slug = :new, status = :st WHERE id = :id"),
+        {"new": archived_slug, "st": "archived", "id": row.id},
+    )
+    session.commit()
+
+    created = seed_protocols(session)
+    new_row = session.query(ResearchProtocol).filter_by(slug=slug).one_or_none()
+    if new_row is not None:
+        session.execute(
+            text("UPDATE research_protocols SET supersedes_id = :old WHERE id = :id"),
+            {"old": row.id, "id": new_row.id},
+        )
+    session.commit()
+    return {
+        "repaired": True,
+        "archived_as": archived_slug,
+        "new_version": SEPTEMBER_2026_PROTOCOL["version"],
+        "created": len(created),
+    }

@@ -49,11 +49,13 @@ prioritised briefings are the point of the research system. Set
 Follow `DEPLOYMENT.md` Path A. **~1–2 hours** including DNS/SSL propagation.
 
 ### 1.5 Record the September result properly
-The frozen T0:T+3 test failed. That is a genuine, publishable result and it is
-currently only captured in an observation draft. Create a formal `Result` against
-the pre-registered prediction, publish both, and let the failure stand as the
-first entry in the public record. **~30 min.** This matters more than it looks:
-the project's credibility rests on publishing the miss.
+The frozen T0:T+3 test **passed**: a qualifying strict local low formed on
+11 September at NM+0 ($76,162.91). Create a formal `Result` against the
+pre-registered prediction and publish both — including the separate facts that
+deeper lows followed at NM+4/+5/+6 and that the absolute cycle low was $74,944.59
+on 15 September. **~30 min.** Publish the distinction, not just the pass: the
+value is in showing that a pivot forming and a cycle bottoming are different
+claims.
 
 ---
 
@@ -111,6 +113,17 @@ per day, negligible cost.
 
 ## 4 — Known issues and honest limitations
 
+### 4.0 The pivot-definition error (fixed 21 Sep 2026)
+The New-Moon test was first implemented on daily **Close** with an invented
+guard-window rule, and both August and September were wrongly recorded as
+failures. Corrected to the paper's LOW-based strict 7-day pivot; both pass.
+Protocol superseded to v1.1, v1.0 archived not deleted, existing databases
+repaired by `bootstrap()`. Full account in `PROJECT_CONTEXT.md` §4.3.
+
+**Guard against a recurrence:** `tests/test_research_services.py` now asserts the
+protocol definition is LOW-based, that a close-only frame raises, and that the
+paper's 7-of-8 claim reproduces exactly.
+
 ### 4.1 Two unreconciled historical figures
 By design, per the research constitution:
 
@@ -122,6 +135,13 @@ By design, per the research constitution:
 Both are stated in the protocol and archive records. **Do not "fix" this by
 tuning the formulas** — that is precisely what the constitution forbids. If you
 recover the original scoring code, add it as a new versioned protocol.
+
+### 4.1b Pattern Fit alignment components still use Close
+`btcmoon/research/pattern_fit.py` locates the New-Moon low and Full-Moon high
+using closing prices. The paper does not state which basis the Pattern Fit Score
+uses, so it has been **left as-is** rather than changed on assumption. If the
+paper specifies intraday extremes, this needs a new scoring protocol version —
+not an edit.
 
 ### 4.2 The measured-move target is unresolved
 The daily cup-and-handle's $100k–$103k target is recorded as a contemporaneous

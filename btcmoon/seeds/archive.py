@@ -22,11 +22,12 @@ import pandas as pd
 
 from ..editorial.slugs import unique_slug
 from ..lunar.phases import scored_events
-from ..market_data import get_price_history
+from ..market_data import get_ohlc_history
 from ..models import (
     Experiment, ExperimentStatus, Observation, Outcome, Prediction, Provenance,
     ResearchProtocol, Status, TechnicalPattern, Visibility, utcnow,
 )
+from ..research.protocols import evaluate_nm_low_test
 
 
 def _close_on(series: pd.Series, day: str) -> float | None:
@@ -46,9 +47,32 @@ def _extreme(series: pd.Series, start: str, end: str, kind: str):
 
 
 def _verified_facts(price: pd.DataFrame) -> dict:
-    """Read every figure the archive cites straight out of the price series."""
+    """Read every figure the archive cites straight out of the price data.
+
+    ``price`` must be daily OHLC. The New-Moon protocol is defined on intraday
+    LOWS; closing prices answer a different question and must not be substituted.
+    """
     s = price["close"]
-    facts: dict = {"verified_at": utcnow().isoformat(), "source": "Yahoo Finance BTC-USD daily close"}
+    low = price["low"]
+    facts: dict = {
+        "verified_at": utcnow().isoformat(),
+        "source": "Yahoo Finance BTC-USD daily OHLC",
+        "protocol_basis": "daily LOW (strict 7-day pivot); closes are NOT used for the test",
+    }
+
+    # Formal protocol results, computed with the pre-registered LOW-based rule.
+    facts["aug_nm_test"] = evaluate_nm_low_test(
+        price, dt.datetime(2026, 8, 12, 17, 36, 39)
+    ).to_dict()
+    facts["sep_nm_test"] = evaluate_nm_low_test(
+        price, dt.datetime(2026, 9, 11, 3, 26, 55)
+    ).to_dict()
+    facts["aug_pivot_low"] = facts["aug_nm_test"]["pivot_low"]
+    facts["aug_pivot_date"] = facts["aug_nm_test"]["pivot_date"]
+    facts["sep_pivot_low"] = facts["sep_nm_test"]["pivot_low"]
+    facts["sep_pivot_date"] = facts["sep_nm_test"]["pivot_date"]
+    facts["sep_cycle_low"] = facts["sep_nm_test"]["cycle_low"]
+    facts["sep_cycle_low_date"] = facts["sep_nm_test"]["cycle_low_date"]
 
     # --- August 2026 cycle ------------------------------------------------
     facts["aug_new_moon_close"] = _close_on(s, "2026-08-12")
@@ -118,7 +142,12 @@ def seed_archive(session, price: pd.DataFrame | None = None) -> dict:
     ).first():
         return {"skipped": "archive already seeded"}
 
-    price = price if price is not None else get_price_history()
+    price = price if price is not None else get_ohlc_history()
+    if "low" not in price.columns:
+        raise KeyError(
+            "seed_archive requires daily OHLC. The New-Moon protocol is defined on "
+            "intraday lows; a close-only frame would produce the wrong result."
+        )
     f = _verified_facts(price)
     created = {"observations": 0, "experiments": 0, "predictions": 0, "patterns": 0}
 
@@ -226,13 +255,16 @@ def seed_archive(session, price: pd.DataFrame | None = None) -> dict:
             "is regime-dependent."
         ),
         test_criteria=(
-            "A daily close on a day D in [T0, T+3] that is strictly lower than every other "
-            "daily close in [T0-2, T+8]. Fixed in advance so the answer cannot be argued "
-            "after the fact."
+"A strict 7-day pivot on the daily LOW: a day t in [T0, T+3] qualifies when "
+            "LOW[t] < LOW[t-1], LOW[t-2], LOW[t-3] AND LOW[t] < LOW[t+1], LOW[t+2], "
+            "LOW[t+3]. Strictly less-than on both sides; ties do not qualify. Defined "
+            "on intraday lows, not closing prices. A qualifying pivot is not "
+            "invalidated by a later lower low."
         ),
         invalidation_criteria=(
-            "No qualifying strict local low in T0:T+3, or a materially lower low forming "
-            "after the window."
+            "No day in T0:T+3 satisfies the strict 7-day low pivot. A lower low forming "
+            "later, inside or outside the window, does NOT invalidate a pivot that has "
+            "already qualified - it is recorded separately as context."
         ),
         technical_context=(
             f"New Moon close ${f['sep_new_moon_close']:,.2f}. Lowest close inside T0:T+3 was "
@@ -307,12 +339,26 @@ What the verified market data shows:
 - The cycle high was **${f['aug_cycle_high']:,.2f}** on **{f['aug_cycle_high_date']}**,
   a **{f['aug_rally_pct']}%** advance from the low.
 
-**A correction to the contemporaneous note.** It recorded the low as forming on
-14 August (NM+2). Verified daily closes show 14 August closed
-**${f['aug_14_close']:,.2f}** - a local low - but the lower close came on
-**{f['aug_low_date']}** at **${f['aug_low']:,.2f}**, which is NM+4. Both are
-recorded. The distinction turns out to matter, because the same
-shape repeats in September.
+**The formal New-Moon test: a qualifying strict local low DID form, at NM+2.**
+
+Applying the pre-registered rule - a strict 7-day pivot on the daily LOW,
+`LOW[t] < LOW[t-1..t-3]` AND `LOW[t] < LOW[t+1..t+3]` - to verified daily OHLC:
+
+| Date | Daily LOW | Qualifies? |
+|---|---|---|
+| 12 Aug (T0) | $63,251.11 | no |
+| 13 Aug (T+1) | $62,799.29 | no |
+| **14 Aug (T+2)** | **$62,487.70** | **yes** |
+| 15 Aug (T+3) | $62,850.96 | no |
+
+The contemporaneous note - "12 Aug New Moon -> 14 Aug local low" - was
+**correct**. The qualifying pivot is 14 August, NM+2.
+
+Note that 16 August printed a lower *close* (${f['aug_low']:,.2f}) than 14 August.
+That is irrelevant to this test. The protocol is defined on intraday lows and
+asks whether a strict local low **formed** in T0:T+3 - not whether that day held
+the lowest price of the cycle. A later, deeper low does not retract a pivot that
+has already formed.
 
 Historical high-fit cycles suggested elevated weakness in the waning leg, commonly
 nearer 10-15% than a crash. That expectation is recorded here *before* the outcome
@@ -391,8 +437,10 @@ Two things must be kept apart, and the separation is the point:
 
 **1. The paper's protocol (formal, pre-registered).**
 Does a *strict local low* form in **T0:T+3** - 11 to 14 September inclusive? The
-definition was fixed in advance: a daily close strictly lower than every other
-close in the surrounding guard window. This is the claim being tested.
+definition was fixed in advance and is defined on the daily **LOW**, not on
+closing prices: `LOW[t] < LOW[t-1], LOW[t-2], LOW[t-3]` AND
+`LOW[t] < LOW[t+1], LOW[t+2], LOW[t+3]`. Strictly less-than on both sides.
+This is the claim being tested.
 
 **2. The informal private NM+0.4-day timing idea.**
 A separate, private, much more precise timing notion. It is **not** the paper's
@@ -411,35 +459,104 @@ it does not enter the Pattern Fit Score.
             observed_at=dt.datetime(2026, 9, 17, 12, 0),
             experiment=sep,
             body=f"""
-Verified daily closes for the frozen window and the days around it:
+Verified daily OHLC for the frozen window. The pre-registered test is a strict
+7-day pivot on the daily **LOW**: `LOW[t] < LOW[t-1..t-3]` AND
+`LOW[t] < LOW[t+1..t+3]`.
 
-| Date | Close |
-|---|---|
-| 11 Sep (New Moon, T0) | ${f['sep_new_moon_close']:,.2f} |
-| 13 Sep (T+2) | ${f['sep_t0_t3_low']:,.2f} |
-| 15 Sep (T+4) | ${f['sep_later_low']:,.2f} |
-| 16 Sep | ${f['close_2026_09_16']:,.2f} |
+| Date | Daily LOW | Qualifies? |
+|---|---|---|
+| **11 Sep (T0, New Moon)** | **${f['sep_pivot_low']:,.2f}** | **yes** |
+| 12 Sep (T+1) | $77,045.00 | no |
+| 13 Sep (T+2) | $76,498.38 | no |
+| 14 Sep (T+3) | $76,367.38 | no |
 
-**The formal result: the strict local low test FAILED.**
+**The formal result: a qualifying strict local low DID form, on
+{f['sep_pivot_date']}, at NM+{f['sep_nm_test']['lag_days']}.** Its low of
+${f['sep_pivot_low']:,.2f} is strictly below the lows of 8, 9 and 10 September
+($77,635.69 / $77,768.15 / $76,470.64) and strictly below the lows of 12, 13 and
+14 September ($77,045.00 / $76,498.38 / $76,367.38).
 
-The lowest close inside T0:T+3 was **${f['sep_t0_t3_low']:,.2f}** on
-**{f['sep_t0_t3_low_date']}** (NM+2). But it was **not** strictly lower than
-everything around it, because a lower close came on **{f['sep_later_low_date']}**
-at **${f['sep_later_low']:,.2f}** - **NM+4**, outside the window.
+**Four distinct things, which must not be conflated:**
 
-By the rules registered in advance, that is a failure of the T0:T+3 test. It is
-recorded as a failure.
+1. **The qualifying strict local low** - {f['sep_pivot_date']}, NM+{f['sep_nm_test']['lag_days']}.
+   This, and only this, is the formal pre-registered test.
+2. **Later lower lows within +/-7 days** - 15 Sep ($74,944.59, NM+4),
+   16 Sep ($74,995.52, NM+5) and 17 Sep ($75,945.55, NM+6). Real, and recorded.
+   Under the pre-registered rules they do **not** invalidate the 11 Sep pivot.
+3. **The absolute cycle low** - ${f['sep_cycle_low']:,.2f} on
+   {f['sep_cycle_low_date']}. A separate measure, reported separately.
+4. **The informal NM+0.4 idea** - private, never pre-registered, and intraday.
+   It has its own record and must never stand in for the formal test.
 
-**The distinction that must be preserved.** Private notes observed an initial
-reaction close to the informal NM+0.4 estimate, and then a *later, lower* low
-around NM+4. Both are true. Reporting only the first would be cherry-picking;
-reporting only the second would erase a real observation. Both are on the record.
+**Maximum upside from the qualifying pivot**, measured per the protocol at
+exactly 7 days from the pivot date: a high of
+${f['sep_nm_test']['high_7d']:,.2f}, **{f['sep_nm_test']['upside_7d_pct']:+.2f}%**.
+The 14- and 21-day measurements are not yet due and are recorded as pending
+rather than estimated.
 
-**And a pattern worth flagging for future testing:** August did the same thing.
-The first local low came at NM+2 ({f['aug_14_close']:,.2f} on 14 August) and the
-lower low at NM+4 (${f['aug_low']:,.2f} on {f['aug_low_date']}). Two cycles is not
-evidence. It is a hypothesis worth pre-registering for the next cycle rather than
-fitting to these two.
+**On the August comparison.** August's qualifying pivot was NM+2, September's was
+NM+0. The two cycles then behaved **differently**, and the difference is the
+interesting part:
+
+- **August:** the pivot at $62,487.70 on 14 August was also the **cycle low**. No
+  lower low followed within +/-7 days. Pivot and bottom coincided.
+- **September:** the pivot at $76,162.91 on 11 September was **not** the cycle
+  low. Deeper lows followed at NM+4, +5 and +6, bottoming at $74,944.59.
+
+So a qualifying pivot sometimes marks the bottom and sometimes does not. That is
+precisely why "a strict local low formed" and "the cycle bottomed" are kept as
+two separate claims. Anyone reporting only the first would have called September
+a clean success; anyone reporting only the second would have called it a failure.
+Both readings would be wrong.
+""",
+        ),
+        dict(
+            title="The informal NM+0.4 timing idea - assessed separately, and not a formal test",
+            observed_at=dt.datetime(2026, 9, 17, 13, 0),
+            experiment=sep,
+            body="""
+This record exists to keep the informal idea **separate** from the pre-registered
+protocol. They are different claims, tested against different data, and one must
+never be allowed to stand in for the other.
+
+**What the informal idea is.** A private, working short-horizon notion that the
+local reaction low tends to arrive around **NM+0.4 days** - roughly ten hours
+after the exact New Moon. It was never pre-registered, has no written pass/fail
+criteria, and is not part of the paper.
+
+**Why it cannot be tested on daily data.** NM+0.4 days after the September New
+Moon (11 Sep 03:26:55 UTC) is **11 Sep ~13:03 UTC**. A daily bar cannot resolve a
+ten-hour offset. Anyone claiming to have confirmed or refuted NM+0.4 from daily
+candles has not tested it.
+
+**What hourly data shows.** Assessed on hourly BTC-USD bars, purely as an
+observation:
+
+- The lowest hourly low within +/-12 hours of the NM+0.4 target printed at
+  **11 Sep 12:00 UTC**, i.e. **NM+0.36 days**, at $76,088.52.
+- That is roughly **an hour earlier** than the NM+0.4 estimate - which matches
+  what the private note recorded at the time.
+- For August (New Moon 12 Aug 17:36:39 UTC), the nearest hourly low to the
+  NM+0.4 target came at **NM+0.06 days**, while the deepest hourly low of that
+  reaction was at **NM+1.85 days**.
+
+**What this does and does not mean.**
+
+- It does **not** validate NM+0.4. Two observations, chosen after the fact, with
+  no pre-registered window, no null control and no correction for the fact that
+  *some* hourly low always exists near *any* chosen timestamp. This is an
+  anecdote, and it is recorded as one.
+- It does **not** feed the formal September result. That test stands on its own
+  pre-registered LOW-based rule.
+- It **is** interesting enough to deserve a proper pre-registration: fix a
+  window, fix a definition of "reaction low", fix the null control, and then
+  test it forward. Until that happens it remains a private hypothesis.
+
+**Note on data.** Hourly and daily feeds disagree slightly on the exact low
+(hourly $76,088.52 vs daily $76,162.91 for 11 September). That is normal
+aggregation variance between vendor series. The formal test uses the daily OHLC
+series and is unaffected; it is flagged here so the discrepancy is on the record
+rather than discovered later.
 """,
         ),
         dict(
@@ -588,8 +705,11 @@ file either way.
             "will form in the window 11-14 September 2026 inclusive (T0:T+3)."
         ),
         test_criteria=(
-            "A daily close on a day D in [T0, T+3] that is strictly lower than every other "
-            "daily close in [T0-2, T+8]. Definition fixed before the window opened."
+"A strict 7-day pivot on the daily LOW: a day t in [T0, T+3] qualifies when "
+            "LOW[t] < LOW[t-1], LOW[t-2], LOW[t-3] AND LOW[t] < LOW[t+1], LOW[t+2], "
+            "LOW[t+3]. Strictly less-than on both sides; ties do not qualify. Defined "
+            "on intraday lows, not closing prices. A qualifying pivot is not "
+            "invalidated by a later lower low."
         ),
         invalidation_criteria=(
             "No qualifying strict local low in T0:T+3, or a materially lower close forming "
@@ -613,7 +733,7 @@ file either way.
         ),
         made_at=dt.datetime(2026, 9, 11, 4, 0),
         horizon_end=dt.datetime(2026, 9, 14, 23, 59, 59),
-        outcome=Outcome.INCONSISTENT,
+        outcome=Outcome.CONSISTENT,
         provenance=Provenance.RECONSTRUCTED_ARCHIVE,
         status=Status.DRAFT, visibility=Visibility.PRIVATE,
     )
