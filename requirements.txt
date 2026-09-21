@@ -1,7 +1,46 @@
-streamlit>=1.30
-plotly>=5.18
-scipy>=1.11
-yfinance>=0.2.54
-ephem>=4.1
+# Bitcoin vs The Moon - production dependencies
+#
+# Install:  pip install -r requirements.txt
+# On cPanel/CloudLinux use the virtualenv that "Setup Python App" created.
+
+# --- web ---------------------------------------------------------------
+Flask>=3.0,<4
+Flask-Login>=0.6
+Flask-WTF>=1.2
+Flask-Limiter>=3.5
+Jinja2>=3.1
+Werkzeug>=3.0
+itsdangerous>=2.1
+
+# --- database ----------------------------------------------------------
+SQLAlchemy>=2.0,<3
+alembic>=1.13
+# Pure-Python MySQL driver: no compiler needed, which matters on shared
+# hosting. Swap for mysqlclient only if the host has build tools and you
+# need the extra throughput.
+PyMySQL>=1.1
+cryptography>=42          # required by PyMySQL for caching_sha2_password
+
+# --- research / data ---------------------------------------------------
 pandas>=2.0
 numpy>=1.24
+scipy>=1.11
+ephem>=4.1
+yfinance>=0.2.54
+
+# --- content -----------------------------------------------------------
+markdown>=3.5
+bleach>=6.1
+feedparser>=6.0
+requests>=2.31
+
+# --- AI ----------------------------------------------------------------
+openai>=1.40
+
+# --- config ------------------------------------------------------------
+python-dotenv>=1.0
+
+# --- optional: the legacy Streamlit research dashboard ------------------
+# Not needed by the public site or by any cron job. Install separately if you
+# want the interactive pivot-explorer:
+#   pip install -r requirements-streamlit.txt

@@ -1,26 +1,24 @@
 ---
 # cPanel Git Version Control deployment.
 #
-# On "Update from Remote" + "Deploy HEAD Commit" (or `git push` to the cPanel
-# repo), cPanel runs these tasks. They publish the static SEO site (docs/) to
-# your domain's document root.
+# The application is NOT a set of static files any more - it is a Flask/WSGI
+# app running under "Setup Python App" (Passenger/LSAPI) from the repository
+# checkout itself. There is nothing to copy into the document root.
 #
-# >>> EDIT DEPLOYPATH <<< to match your domain's docroot, shown in
-# cPanel » Domains (e.g. /home/CPUSER/public_html for a primary domain, or
-# /home/CPUSER/bitcoinvsthemoon.com for an addon/subdomain).
+# So this task does the only thing that must happen on every deploy: tell
+# Passenger to reload the code. Dependency installs and database migrations are
+# deliberately NOT automated here - a migration is not something that should run
+# unattended on a `git push`. See DEPLOYMENT.md section 5 for the full update
+# procedure.
 #
-# NOTE: this only deploys the static site. The interactive Streamlit tool at
-# /app/ is a running Python process and is set up once over SSH — see
-# deploy/cpanel-app-proxy.conf and the README.
+# >>> EDIT APPROOT <<< to your application root (cPanel > Setup Python App).
 
 deployment:
   tasks:
-    - export DEPLOYPATH=/home/CPUSER/public_html
-    - /bin/mkdir -p $DEPLOYPATH
-    - /bin/cp -R docs/index.html $DEPLOYPATH/
-    - /bin/cp -R docs/moon-phases.html $DEPLOYPATH/
-    - /bin/cp -R docs/bitcoin-history.html $DEPLOYPATH/
-    - /bin/cp -R docs/methodology.html $DEPLOYPATH/
-    - /bin/cp -R docs/robots.txt $DEPLOYPATH/
-    - /bin/cp -R docs/sitemap.xml $DEPLOYPATH/
-    - /bin/cp -R docs/assets $DEPLOYPATH/
+    - export APPROOT=/home/CPUSER/moonvsbtc
+    - /bin/mkdir -p $APPROOT/tmp
+    - /bin/touch $APPROOT/tmp/restart.txt
+    - /bin/echo "Deployed. If requirements.txt or migrations/ changed, run:"
+    - /bin/echo "  source /home/CPUSER/virtualenv/moonvsbtc/3.11/bin/activate"
+    - /bin/echo "  cd $APPROOT && pip install -r requirements.txt && alembic upgrade head"
+    - /bin/echo "  touch $APPROOT/tmp/restart.txt"

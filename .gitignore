@@ -15,3 +15,9 @@ btcmoon.db
 # generated
 instance/
 *.log
+
+# market data cache
+.cache/
+
+# passenger restart trigger
+tmp/

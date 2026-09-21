@@ -5,6 +5,11 @@ __pycache__/
 .gitignore
 .qodo/
 .DS_Store
-*.md
-!README.md
+.env
+.env.local
+*.db
+.cache/
+tests/
+docs/
 moon_phase_table.html
+*.pdf

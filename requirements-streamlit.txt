@@ -1,0 +1,5 @@
+# Optional: the legacy interactive research dashboard (app.py).
+# The public site, admin, Companion and all cron jobs run WITHOUT these.
+-r requirements.txt
+streamlit>=1.30
+plotly>=5.18
