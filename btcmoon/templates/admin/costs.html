@@ -1,0 +1,83 @@
+{% extends "admin/_layout.html" %}
+{% from "admin/_budget.html" import budget_widget %}
+{% block admin_content %}
+<h1>AI spend</h1>
+{{ budget_widget(budget) }}
+
+<div class="grid grid-4 section">
+  <div class="stat"><div class="k">Today</div><div class="v">${{ '%.4f'|format(today) }}</div>
+    <div class="d">of ${{ '%.2f'|format(budget.day_budget) }}</div></div>
+  <div class="stat"><div class="k">This month</div><div class="v">${{ '%.4f'|format(month) }}</div>
+    <div class="d">of ${{ '%.2f'|format(budget.month_budget) }}</div></div>
+  <div class="stat"><div class="k">Remaining</div><div class="v v-up">${{ '%.4f'|format(budget.remaining_month) }}</div></div>
+  <div class="stat"><div class="k">Status</div>
+    <div class="v {% if budget.blocked %}v-down{% else %}v-up{% endif %}" style="font-size:1.05rem">
+      {{ 'PAUSED' if budget.blocked else 'Active' }}</div></div>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h3>Month-to-date by task</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Task</th><th class="num">Calls</th><th class="num">Spend</th></tr></thead>
+        <tbody>
+          {% for task, cost, n in by_task %}
+            <tr><td class="mono">{{ task }}</td><td class="num">{{ n }}</td><td class="num">${{ '%.4f'|format(cost) }}</td></tr>
+          {% else %}<tr><td colspan="3" class="muted">No AI calls yet.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <h3>Month-to-date by model</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Model</th><th class="num">Calls</th><th class="num">Spend</th></tr></thead>
+        <tbody>
+          {% for model, cost, n in by_model %}
+            <tr><td class="mono">{{ model }}</td><td class="num">{{ n }}</td><td class="num">${{ '%.4f'|format(cost) }}</td></tr>
+          {% else %}<tr><td colspan="3" class="muted">No AI calls yet.</td></tr>{% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<section class="section">
+  <h2>Average cost per task</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Task</th><th>Model in use</th><th class="num">Average cost</th></tr></thead>
+      <tbody>
+        {% for task, avg in averages.items() %}
+          <tr><td class="mono">{{ task }}</td><td class="mono faint">{{ models[task] }}</td>
+              <td class="num">{{ '${:.4f}'.format(avg) if avg else '—' }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Recent calls</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>When</th><th>Task</th><th>Model</th><th class="num">In</th><th class="num">Cached</th><th class="num">Out</th><th class="num">Cost</th></tr></thead>
+      <tbody>
+        {% for u in recent %}
+          <tr>
+            <td class="mono">{{ u.occurred_at|datefmt('%d %b %H:%M') }}</td>
+            <td class="mono">{{ u.task }}</td>
+            <td class="mono faint">{{ u.model }}</td>
+            <td class="num">{{ u.input_tokens }}</td>
+            <td class="num">{{ u.cached_input_tokens }}</td>
+            <td class="num">{{ u.output_tokens }}</td>
+            <td class="num">${{ '%.5f'|format(u.estimated_cost_usd) }}</td>
+          </tr>
+        {% else %}<tr><td colspan="7" class="muted">No AI calls recorded.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

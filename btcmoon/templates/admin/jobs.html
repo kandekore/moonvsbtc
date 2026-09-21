@@ -1,0 +1,36 @@
+{% extends "admin/_layout.html" %}
+{% block admin_content %}
+<h1>Scheduled jobs</h1>
+<p class="faint">
+  Jobs are idempotent: a second run of the same logical job on the same day is
+  recorded as skipped rather than duplicated. They run from cron and need no
+  browser session.
+</p>
+<div class="card">
+  <h3>Commands</h3>
+  <pre class="mono" style="white-space:pre-wrap;font-size:.84rem">python -m jobs.morning_brief    # ~07:00 Europe/London
+python -m jobs.evening_brief    # ~18:00 Europe/London
+python -m jobs.ingest_news      # hourly
+python -m jobs.daily_outlook    # publishes tomorrow's outlook as a draft
+python -m jobs.snapshot_market  # daily market snapshot
+python -m jobs.evaluate_protocols  # re-score frozen protocol windows</pre>
+</div>
+
+<div class="table-wrap">
+  <table>
+    <thead><tr><th>Job</th><th>Key</th><th>Started</th><th>Duration</th><th>Status</th><th>Detail</th></tr></thead>
+    <tbody>
+      {% for j in runs %}
+        <tr>
+          <td class="mono">{{ j.job_name }}</td>
+          <td class="mono faint">{{ j.idempotency_key|truncate(34) }}</td>
+          <td class="mono">{{ j.started_at|datefmt('%d %b %H:%M:%S') }}</td>
+          <td class="num faint">{{ '%.1fs'|format(j.duration_seconds) if j.duration_seconds else '—' }}</td>
+          <td><span class="outcome outcome-{{ 'consistent' if j.status=='success' else ('inconsistent' if j.status=='error' else 'pending') }}">{{ j.status }}</span></td>
+          <td class="faint">{{ (j.error or j.detail)|truncate(90) }}</td>
+        </tr>
+      {% else %}<tr><td colspan="6" class="muted">No runs yet.</td></tr>{% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

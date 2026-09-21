@@ -1,0 +1,82 @@
+{% extends "admin/_layout.html" %}
+{% from "admin/_budget.html" import budget_widget %}
+{% block admin_content %}
+<h1>Research laboratory</h1>
+
+<div class="grid grid-4 section">
+  <div class="stat"><div class="k">Draft articles</div><div class="v">{{ drafts.articles }}</div></div>
+  <div class="stat"><div class="k">Draft predictions</div><div class="v">{{ drafts.predictions }}</div></div>
+  <div class="stat"><div class="k">Draft results</div><div class="v">{{ drafts.results }}</div></div>
+  <div class="stat"><div class="k">Needs triage</div><div class="v {% if pending_triage %}v-gold{% endif %}">{{ pending_triage }}</div></div>
+</div>
+
+{{ budget_widget(budget) }}
+
+<section class="section">
+  <h2>Active experiments</h2>
+  {% if experiments %}
+    <ul class="entry-list">
+      {% for e in experiments %}
+        <li>
+          <div class="entry-meta">
+            <span class="outcome outcome-{{ e.outcome }}">{{ e.outcome|outcome_label }}</span>
+            <span>{{ e.experiment_status|title }}</span>
+            <span>{{ e.status }}</span>
+          </div>
+          <a class="entry-title" href="{{ url_for('admin.content_edit', kind='experiments', item_id=e.id) }}">{{ e.title }}</a>
+          <p class="faint">{{ e.test_criteria|truncate(160) }}</p>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">No active experiments.</p>
+  {% endif %}
+</section>
+
+<section class="section">
+  <h2>Recent briefings</h2>
+  {% if briefings %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>When</th><th>Kind</th><th>Headline</th><th>Triage</th><th>Cost</th></tr></thead>
+        <tbody>
+          {% for b in briefings %}
+            <tr>
+              <td class="mono">{{ b.generated_at|datefmt('%d %b %H:%M') }}</td>
+              <td>{{ b.kind|title }}</td>
+              <td><a href="{{ url_for('admin.briefing', briefing_id=b.id) }}">{{ b.headline|truncate(70) }}</a></td>
+              <td>{{ b.triage.replace('_',' ')|title }}</td>
+              <td class="num">${{ '%.4f'|format(b.estimated_cost_usd) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No briefings yet. Run <code class="mono">python -m jobs.morning_brief</code>.</p>
+  {% endif %}
+</section>
+
+<section class="section">
+  <h2>Recent job runs</h2>
+  {% if jobs %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Job</th><th>Started</th><th>Status</th><th>Detail</th></tr></thead>
+        <tbody>
+          {% for j in jobs %}
+            <tr>
+              <td class="mono">{{ j.job_name }}</td>
+              <td class="mono">{{ j.started_at|datefmt('%d %b %H:%M') }}</td>
+              <td><span class="outcome outcome-{{ 'consistent' if j.status == 'success' else ('inconsistent' if j.status == 'error' else 'pending') }}">{{ j.status }}</span></td>
+              <td class="faint">{{ (j.error or j.detail)|truncate(90) }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="muted">No job runs recorded yet.</p>
+  {% endif %}
+</section>
+{% endblock %}

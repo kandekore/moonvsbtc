@@ -1,0 +1,63 @@
+{% extends "admin/_layout.html" %}
+{% block admin_content %}
+<div class="section-head">
+  <h1>News ingestion</h1>
+  <form method="post">
+    {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+    <button class="btn btn-sm" name="action" value="ingest" type="submit">Ingest now</button>
+  </form>
+</div>
+<p class="faint">
+  Deterministic and free: fetch &rarr; dedupe &rarr; rule-based classify and score
+  &rarr; database. No AI runs per item. Normally run by cron:
+  <code class="mono">python -m jobs.ingest_news</code>.
+</p>
+
+<section class="section">
+  <h2>Sources</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Source</th><th>Category</th><th>Weight</th><th>Last fetched</th><th>Error</th></tr></thead>
+      <tbody>
+        {% for s in sources %}
+          <tr>
+            <td>{{ s.name }}{% if s.is_authoritative %} <span class="faint">(primary)</span>{% endif %}</td>
+            <td class="faint">{{ s.default_category|replace('_',' ') }}</td>
+            <td class="num">{{ s.weight }}</td>
+            <td class="mono faint">{{ s.last_fetched_at|datefmt('%d %b %H:%M') if s.last_fetched_at else '—' }}</td>
+            <td class="faint">{{ s.last_error|truncate(60) }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Ingested items</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th class="num">Score</th><th>Headline</th><th>Category</th><th>Publisher</th><th>Actions</th></tr></thead>
+      <tbody>
+        {% for i in items %}
+          <tr {% if i.is_hidden %}style="opacity:.45"{% endif %}>
+            <td class="num">{{ i.relevance_score }}</td>
+            <td><a href="{{ i.canonical_url }}" target="_blank" rel="noopener noreferrer nofollow">{{ i.headline|truncate(80) }}</a>
+              {% if i.is_featured %} <span class="label label-prediction">Featured</span>{% endif %}</td>
+            <td class="faint">{{ i.category|replace('_',' ') }}</td>
+            <td class="faint">{{ i.publisher }}</td>
+            <td>
+              <form method="post" style="display:inline">
+                {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+                <input type="hidden" name="item_id" value="{{ i.id }}">
+                <button class="btn btn-ghost btn-sm" name="action" value="feature" type="submit">{{ 'Unfeature' if i.is_featured else 'Feature' }}</button>
+                <button class="btn btn-ghost btn-sm" name="action" value="hide" type="submit">{{ 'Show' if i.is_hidden else 'Hide' }}</button>
+              </form>
+            </td>
+          </tr>
+        {% else %}<tr><td colspan="5" class="muted">Nothing ingested yet.</td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+{% endblock %}

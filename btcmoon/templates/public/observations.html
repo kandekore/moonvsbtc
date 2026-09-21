@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "partials/provenance.html" import record_badge %}
+{% block content %}
+<h1>Observations</h1>
+<p class="lede muted">
+  Things noticed and written down. An observation records what was seen and when
+  it was seen &mdash; it is not a prediction and makes no forward-looking claim.
+</p>
+{% if observations %}
+  <ul class="entry-list">
+    {% for o in observations %}
+      <li>
+        <div class="entry-meta">
+          {{ record_badge('observation') }}
+          <span>Observed {{ o.observed_at|datefmt }}</span>
+          {% if o.provenance in ('reconstructed_archive','research_paper') %}
+            <span class="label label-experimental">Reconstructed</span>
+          {% endif %}
+        </div>
+        <a class="entry-title" href="{{ url_for('public.observation', slug=o.slug) }}">{{ o.title }}</a>
+        <p class="muted">{{ o.body|truncate(240) }}</p>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="muted">No observations published yet.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% from "partials/provenance.html" import record_badge %}
+{% block content %}
+<h1>Bitcoin&rsquo;s Natal Chart</h1>
+<div class="entry-meta">{{ record_badge('experimental') }}</div>
+<p class="lede muted">
+  Bitcoin has a birth moment: the genesis block, timestamped
+  <strong>3 January 2009 at 18:15:05 UTC</strong> in the block header itself. That
+  instant is the basis for the chart below.
+</p>
+
+<div class="disclaimer">
+  <strong>This is an experimental interpretive layer.</strong> Astrology has no
+  established causal mechanism in financial markets and is not established
+  financial forecasting. It is tracked here the same way every other input is:
+  recorded in advance, reviewed afterwards, and reported alongside price
+  structure, volume, market regime and real catalysts &mdash; never instead of them.
+</div>
+
+<section class="section">
+  <h2>Chart assumptions</h2>
+  <div class="card">
+    <dl>
+      <dt class="faint">Birth moment</dt><dd class="mono">{{ assumptions.birth_moment_utc }} UTC</dd>
+      <dt class="faint">Basis</dt><dd>{{ assumptions.basis }}</dd>
+      <dt class="faint">Location &amp; houses</dt><dd>{{ assumptions.location }}</dd>
+      <dt class="faint">Zodiac</dt><dd>{{ assumptions.zodiac }}</dd>
+    </dl>
+    <h3 style="margin-top:18px">Caveats we state up front</h3>
+    <ul>{% for c in assumptions.caveats %}<li>{{ c }}</li>{% endfor %}</ul>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Natal positions</h2>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Body</th><th>Position</th><th class="num">Ecliptic longitude</th></tr></thead>
+      <tbody>
+        {% for name, pos in chart.positions.items() %}
+          <tr><td><strong>{{ name }}</strong></td><td>{{ pos.display }}</td><td class="num">{{ pos.longitude }}&deg;</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+{% if transits %}
+<section class="section">
+  <div class="section-head">
+    <h2>Notable transits today</h2>
+    <a class="more" href="{{ url_for('public.transits') }}">30-day transit calendar &rarr;</a>
+  </div>
+  {% if transits.notable_transits %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Transit</th><th class="num">Orb</th><th>Phase</th><th class="num">Weight</th></tr></thead>
+        <tbody>
+          {% for t in transits.notable_transits %}
+            <tr>
+              <td>Transiting <strong>{{ t.transiting_body }}</strong> {{ t.aspect }} natal <strong>{{ t.natal_point }}</strong></td>
+              <td class="num">{{ t.orb_deg }}&deg;</td>
+              <td>{{ 'applying' if t.is_applying else 'separating' }}</td>
+              <td class="num">{{ t.weight }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <p class="faint">{{ transits.disclaimer }}</p>
+  {% else %}
+    <p class="muted">No transits within orb today.</p>
+  {% endif %}
+</section>
+{% endif %}
+
+<section class="section">
+  <div class="card">
+    <h2>Outlooks built on this chart</h2>
+    <p class="muted">
+      Daily, monthly and yearly outlooks combine these transits with the current
+      Moon phase, the Full/New Moon offset, any live experiment window, technical
+      context and scheduled events &mdash; then state what would support the thesis
+      and what would weaken it.
+    </p>
+    <a class="btn btn-ghost" href="{{ url_for('public.outlooks') }}">Read the outlooks</a>
+  </div>
+</section>
+{% endblock %}

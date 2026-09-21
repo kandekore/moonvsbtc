@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% from "partials/provenance.html" import record_badge %}
+{% block content %}
+<article>
+  <div class="entry-meta">
+    {{ record_badge('experimental') }}
+    <span>{{ outlook.kind|title }} outlook</span>
+    <span>{{ outlook.period_start|datefmt }}{% if outlook.period_end != outlook.period_start %} &ndash; {{ outlook.period_end|datefmt }}{% endif %}</span>
+    {% if outlook.ai_generated %}<span class="faint">AI-drafted, editor-reviewed</span>{% endif %}
+  </div>
+  <h1>{{ outlook.title }}</h1>
+  {% if outlook.summary %}<p class="lede muted">{{ outlook.summary }}</p>{% endif %}
+
+  <div class="prose">{{ outlook.body_markdown|markdown|safe }}</div>
+
+  {% if lunar %}
+    <div class="card">
+      <h3>Lunar context recorded for this outlook</h3>
+      <dl>
+        <dt class="faint">Phase</dt><dd>{{ lunar.phase_name }} &middot; {{ lunar.illumination_pct }}% illuminated</dd>
+        {% if lunar.days_since_full_moon is not none %}<dt class="faint">Full Moon offset</dt><dd>{{ lunar.days_since_full_moon }} days since the last Full Moon</dd>{% endif %}
+        {% if lunar.days_since_new_moon is not none %}<dt class="faint">New Moon offset</dt><dd>{{ lunar.days_since_new_moon }} days since the last New Moon</dd>{% endif %}
+      </dl>
+    </div>
+  {% endif %}
+
+  {% if outlook.review_markdown %}
+    <div class="result-block">
+      <div class="result-head">
+        {{ record_badge('result') }}
+        <span class="faint">Retrospective review appended {{ outlook.review_recorded_at|datetimefmt }}</span>
+      </div>
+      <div class="prose">{{ outlook.review_markdown|markdown|safe }}</div>
+    </div>
+  {% endif %}
+
+  <div class="disclaimer">
+    An outlook is an interpretation recorded in advance so it can be checked
+    afterwards &mdash; not a forecast and not investment advice. Astrological
+    interpretation is experimental and has no established causal mechanism in markets.
+  </div>
+</article>
+{% endblock %}

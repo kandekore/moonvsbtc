@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% from "partials/provenance.html" import record_badge, outcome_badge %}
+{% from "partials/nowbar.html" import btc_moon_now %}
+
+{% block content %}
+<section class="hero">
+  <h1>Can lunar cycles tell us anything useful about Bitcoin?</h1>
+  <p class="lede">
+    This is a public longitudinal experiment, not a claim. We test whether lunar
+    cycles and Bitcoin's astrological natal chart show any useful relationship with
+    market behaviour &mdash; considered alongside conventional technical analysis,
+    price structure, volume, market regime and real-world catalysts.
+  </p>
+  <p class="question">
+    We record observations <strong>before</strong> events and then record what
+    actually happened &mdash; including the failures.
+  </p>
+  <div class="form-actions">
+    <a class="btn" href="{{ url_for('public.experiments') }}">See the current experiment</a>
+    <a class="btn btn-ghost" href="{{ url_for('public.methodology') }}">How we measure it</a>
+  </div>
+</section>
+
+{{ btc_moon_now(btc, moon) }}
+
+{% if experiment %}
+<section class="section">
+  <div class="section-head">
+    <h2>Current experiment</h2>
+    <a class="more" href="{{ url_for('public.experiments') }}">All experiments &rarr;</a>
+  </div>
+  <div class="card">
+    <div class="entry-meta">
+      {{ record_badge('experimental') }}
+      {{ outcome_badge(experiment.outcome) }}
+      <span>{{ experiment.experiment_status|title }}</span>
+      {% if experiment.observed_at %}<span>Opened {{ experiment.observed_at|datefmt }}</span>{% endif %}
+    </div>
+    <a class="entry-title" href="{{ url_for('public.experiment', slug=experiment.slug) }}">{{ experiment.title }}</a>
+    <p class="muted">{{ experiment.summary }}</p>
+    {% if experiment.test_criteria %}
+      <p class="faint"><strong>Test criteria:</strong> {{ experiment.test_criteria }}</p>
+    {% endif %}
+  </div>
+</section>
+{% endif %}
+
+<section class="section">
+  <div class="section-head">
+    <h2>Tomorrow&rsquo;s BTC natal outlook</h2>
+    <a class="more" href="{{ url_for('public.outlooks') }}">All outlooks &rarr;</a>
+  </div>
+  {% if tomorrow_outlook %}
+    <div class="card">
+      <div class="entry-meta">
+        {{ record_badge('experimental') }}
+        <span>For {{ tomorrow_outlook.period_start|datefmt }}</span>
+      </div>
+      <a class="entry-title" href="{{ url_for('public.outlook', slug=tomorrow_outlook.slug) }}">{{ tomorrow_outlook.title }}</a>
+      <p class="muted">{{ tomorrow_outlook.summary }}</p>
+    </div>
+  {% else %}
+    <div class="card muted">
+      <p>Tomorrow&rsquo;s outlook has not been published yet. Daily outlooks are
+      normally published one day in advance.</p>
+      {% if today_outlook %}
+        <a href="{{ url_for('public.outlook', slug=today_outlook.slug) }}">Read today&rsquo;s outlook &rarr;</a>
+      {% endif %}
+    </div>
+  {% endif %}
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <h2>Latest prediction &amp; result</h2>
+    <a class="more" href="{{ url_for('public.predictions') }}">All predictions &amp; results &rarr;</a>
+  </div>
+  <div class="grid grid-2">
+    <div class="card">
+      <h3>{{ record_badge('prediction') }} Latest prediction</h3>
+      {% if latest_prediction %}
+        <a class="entry-title" href="{{ url_for('public.prediction', slug=latest_prediction.slug) }}">{{ latest_prediction.title }}</a>
+        <p class="muted">{{ latest_prediction.prediction_text|truncate(220) }}</p>
+        <div class="entry-meta">
+          {{ outcome_badge(latest_prediction.outcome) }}
+          <span>Published {{ latest_prediction.published_at|datefmt }}</span>
+        </div>
+      {% else %}
+        <p class="muted">No prediction has been published yet.</p>
+      {% endif %}
+    </div>
+    <div class="card">
+      <h3>{{ record_badge('result') }} Latest result</h3>
+      {% if latest_result %}
+        <a class="entry-title" href="{{ url_for('public.result', slug=latest_result.slug) }}">{{ latest_result.title }}</a>
+        <p class="muted">{{ latest_result.body|truncate(220) }}</p>
+        <div class="entry-meta">
+          {{ outcome_badge(latest_result.outcome) }}
+          <span>Recorded {{ latest_result.recorded_at|datefmt }}</span>
+        </div>
+      {% else %}
+        <p class="muted">No result has been recorded yet.</p>
+      {% endif %}
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <h2>Research journal</h2>
+    <a class="more" href="{{ url_for('public.research') }}">Full journal &rarr;</a>
+  </div>
+  {% if journal %}
+    <ul class="entry-list">
+      {% for e in journal %}
+        <li>
+          <div class="entry-meta">
+            {{ record_badge(e.kind) }}
+            <span>{{ (e.published_at or e.observed_at)|datefmt }}</span>
+            {% if e.provenance in ('reconstructed_archive', 'research_paper') %}
+              <span class="label label-experimental">Reconstructed</span>
+            {% endif %}
+          </div>
+          <a class="entry-title" href="{{ url_for(e.endpoint, slug=e.url_slug) }}">{{ e.title }}</a>
+          <p class="muted">{{ e.summary|truncate(200) }}</p>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">The journal is empty. Published observations, results and
+    research updates will appear here.</p>
+  {% endif %}
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <h2>Important Bitcoin developments</h2>
+    <a class="more" href="{{ url_for('public.news') }}">All tracked news &rarr;</a>
+  </div>
+  <p class="faint">
+    News is context for the experiment, not the point of it. Only a handful of
+    genuinely material developments appear here.
+  </p>
+  {% if news %}
+    <ul class="news-list">
+      {% for item in news %}
+        <li>
+          <span class="news-cat">{{ categories_labels[item.category] if categories_labels is defined else item.category.replace('_',' ')|title }}</span>
+          <a class="news-head" href="{{ item.canonical_url }}" rel="noopener noreferrer nofollow" target="_blank">{{ item.headline }}</a>
+          <span class="news-src">{{ item.publisher }}{% if item.source_published_at %} &middot; {{ item.source_published_at|datefmt('%d %b %Y') }}{% endif %}</span>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p class="muted">No tracked developments yet. The news ingestion job populates this.</p>
+  {% endif %}
+</section>
+
+<section class="section">
+  <div class="card">
+    <h2>Methodology &amp; the paper</h2>
+    <p class="muted">
+      The rules are fixed in advance and published. Lag windows, pivot definitions
+      and scoring weights are never changed because recent price action did not fit.
+    </p>
+    <div class="form-actions">
+      <a class="btn btn-ghost" href="{{ url_for('public.methodology') }}">Read the methodology</a>
+      {% if not current_user.is_authenticated %}
+        <a class="btn" href="{{ url_for('auth.register') }}">Create a free account</a>
+      {% endif %}
+    </div>
+    {% if IS_FREE_PERIOD %}
+      <p class="faint">Everything is free through {{ FREE_UNTIL|datefmt }}.</p>
+    {% endif %}
+  </div>
+</section>
+{% endblock %}

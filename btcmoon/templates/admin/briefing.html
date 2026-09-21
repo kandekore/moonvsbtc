@@ -1,0 +1,32 @@
+{% extends "admin/_layout.html" %}
+{% block admin_content %}
+<div class="entry-meta">
+  <span class="label label-research_update">{{ briefing.kind|title }} brief</span>
+  <span>{{ briefing.generated_at|datetimefmt }}</span>
+  <span class="outcome outcome-{{ 'pending' if briefing.triage == 'nothing_material' else 'partially_consistent' }}">
+    {{ triage_labels.get(briefing.triage, briefing.triage) }}
+  </span>
+  {% if briefing.ai_generated %}<span class="faint">{{ briefing.model }} &middot; ${{ '%.4f'|format(briefing.estimated_cost_usd) }}</span>
+  {% else %}<span class="faint">deterministic (no AI call)</span>{% endif %}
+</div>
+<h1>{{ briefing.headline }}</h1>
+{% if briefing.triage_note %}<p class="lede muted">{{ briefing.triage_note }}</p>{% endif %}
+
+<div class="card prose">{{ briefing.body_markdown|markdown|safe }}</div>
+
+<details class="card">
+  <summary>Evidence gathered before any AI call</summary>
+  <div class="table-wrap">
+    <pre class="mono" style="white-space:pre-wrap;font-size:.78rem">{{ context|tojson(indent=2) }}</pre>
+  </div>
+</details>
+
+{% if not briefing.reviewed_at %}
+  <form method="post">
+    {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+    <button class="btn" type="submit">Mark as reviewed</button>
+  </form>
+{% else %}
+  <p class="faint">Reviewed {{ briefing.reviewed_at|datetimefmt }}.</p>
+{% endif %}
+{% endblock %}

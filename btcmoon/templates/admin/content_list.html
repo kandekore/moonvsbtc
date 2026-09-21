@@ -1,0 +1,40 @@
+{% extends "admin/_layout.html" %}
+{% block admin_content %}
+<div class="section-head">
+  <h1>{{ kind|title }}</h1>
+  {% if kind in ('articles','observations','predictions') %}
+    <a class="btn btn-sm" href="{{ url_for('admin.content_new', kind=kind) }}">New {{ kind[:-1] }}</a>
+  {% endif %}
+</div>
+
+<div class="pill-row">
+  <a class="pill {% if not active_status %}active{% endif %}" href="{{ url_for('admin.content', kind=kind) }}">All</a>
+  {% for st in statuses %}
+    <a class="pill {% if active_status == st %}active{% endif %}"
+       href="{{ url_for('admin.content', kind=kind, status=st) }}">{{ st|title }}</a>
+  {% endfor %}
+</div>
+
+{% if items %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Title</th><th>Status</th><th>Provenance</th><th>Outcome</th><th>Published</th></tr></thead>
+      <tbody>
+        {% for i in items %}
+          <tr>
+            <td><a href="{{ url_for('admin.content_edit', kind=kind, item_id=i.id) }}">{{ (i.title or '(untitled)')|truncate(70) }}</a>
+              {% if i.status == 'published' and i.__class__.__name__ == 'Prediction' %}<span class="faint" title="Immutable">&#128274;</span>{% endif %}
+            </td>
+            <td><span class="outcome outcome-{{ 'consistent' if i.status=='published' else 'pending' }}">{{ i.status }}</span></td>
+            <td class="faint">{{ (i.provenance or '')|replace('_',' ') }}</td>
+            <td>{% if i.outcome is defined and i.outcome %}<span class="outcome outcome-{{ i.outcome }}">{{ i.outcome|outcome_label }}</span>{% endif %}</td>
+            <td class="mono faint">{{ i.published_at|datefmt('%d %b %Y') if i.published_at else '—' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="muted">Nothing here yet.</p>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% from "partials/provenance.html" import record_badge %}
+{% block content %}
+<h1>Research Journal</h1>
+<p class="lede muted">
+  Everything published, newest first: research updates, observations and results.
+  Reconstructed archive entries are labelled as such.
+</p>
+{% if journal %}
+  <ul class="entry-list">
+    {% for e in journal %}
+      <li>
+        <div class="entry-meta">
+          {{ record_badge(e.kind) }}
+          <span>{{ (e.published_at or e.observed_at)|datefmt }}</span>
+          {% if e.provenance in ('reconstructed_archive','research_paper') %}
+            <span class="label label-experimental">Reconstructed</span>
+          {% endif %}
+        </div>
+        <a class="entry-title" href="{{ url_for(e.endpoint, slug=e.url_slug) }}">{{ e.title }}</a>
+        <p class="muted">{{ e.summary|truncate(240) }}</p>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="muted">Nothing published yet.</p>
+{% endif %}
+{% endblock %}

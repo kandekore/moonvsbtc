@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Not permitted</h1>
+<p class="muted">You do not have access to that page.</p>
+<p><a href="{{ url_for('public.home') }}">Back to the experiment &rarr;</a></p>
+{% endblock %}

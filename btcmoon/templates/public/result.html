@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% from "partials/provenance.html" import notice, record_badge, outcome_badge %}
+{% block content %}
+<article>
+  <div class="entry-meta">{{ record_badge('result') }} {{ outcome_badge(result.outcome) }}
+    <span>Recorded {{ result.recorded_at|datetimefmt }}</span></div>
+  <h1>{{ result.title }}</h1>
+  {{ notice(result) }}
+
+  {% if result.prediction and result.prediction.status == 'published' %}
+    <div class="locked-box">
+      <div class="locked-head"><span class="lock" aria-hidden="true">&#128274;</span> The original prediction, unedited</div>
+      <p>{{ result.prediction.prediction_text }}</p>
+      <p class="faint">Published {{ result.prediction.published_at|datetimefmt }} &middot;
+        <a href="{{ url_for('public.prediction', slug=result.prediction.slug) }}">full record</a></p>
+    </div>
+  {% endif %}
+
+  <div class="prose">{{ result.body|markdown|safe }}</div>
+
+  <div class="card">
+    <h3>Measurements</h3>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          {% if result.price_at_prediction %}<tr><th>Price at prediction</th><td class="num">{{ result.price_at_prediction|money }}</td></tr>{% endif %}
+          {% if result.price_at_result %}<tr><th>Price at result</th><td class="num">{{ result.price_at_result|money }}</td></tr>{% endif %}
+          {% if result.subsequent_high %}<tr><th>Subsequent high</th><td class="num">{{ result.subsequent_high|money }}</td></tr>{% endif %}
+          {% if result.subsequent_low %}<tr><th>Subsequent low</th><td class="num">{{ result.subsequent_low|money }}</td></tr>{% endif %}
+          {% if result.max_upside_pct is not none %}<tr><th>Maximum upside</th><td class="num">{{ result.max_upside_pct|pct }}</td></tr>{% endif %}
+          {% if result.max_downside_pct is not none %}<tr><th>Maximum downside</th><td class="num">{{ result.max_downside_pct|pct }}</td></tr>{% endif %}
+          {% if result.timing_error_days is not none %}<tr><th>Timing error</th><td class="num">{{ result.timing_error_days|days }}</td></tr>{% endif %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  {% if result.lessons %}
+    <div class="card"><h3>Lessons</h3><div class="prose">{{ result.lessons|markdown|safe }}</div></div>
+  {% endif %}
+</article>
+{% endblock %}

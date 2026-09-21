@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Important Bitcoin News</h1>
+<p class="lede muted">
+  News is context for the experiment, not the identity of this site. We link and
+  attribute &mdash; we never republish other people&rsquo;s articles.
+</p>
+
+<div class="pill-row">
+  <a class="pill {% if not active_category %}active{% endif %}" href="{{ url_for('public.news') }}">All</a>
+  {% for key in categories.ALL %}
+    <a class="pill {% if active_category == key %}active{% endif %}"
+       href="{{ url_for('public.news', category=key) }}">{{ categories.LABELS[key] }}</a>
+  {% endfor %}
+</div>
+
+{% if items %}
+  <ul class="news-list">
+    {% for item in items %}
+      <li>
+        <span class="news-cat">{{ categories.LABELS.get(item.category, item.category) }}</span>
+        <a class="news-head" href="{{ item.canonical_url }}" rel="noopener noreferrer nofollow" target="_blank">{{ item.headline }}</a>
+        {% if item.summary %}<p class="muted" style="margin:4px 0">{{ item.summary|truncate(260) }}</p>{% endif %}
+        <span class="news-src">
+          {{ item.publisher }}
+          {% if item.source_published_at %} &middot; published {{ item.source_published_at|datefmt('%d %b %Y, %H:%M') }}{% endif %}
+          &middot; retrieved {{ item.retrieved_at|datefmt('%d %b %Y') }}
+        </span>
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="muted">Nothing tracked in this category yet.</p>
+{% endif %}
+
+<div class="disclaimer">
+  Headlines, links and short summaries only. Copyright in the linked articles
+  remains with their publishers. Where a factual macro or regulatory claim matters
+  to the experiment, we prefer the primary source.
+</div>
+{% endblock %}

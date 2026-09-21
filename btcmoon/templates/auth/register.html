@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Create a free account</h1>
+<p class="muted">Everything is free through {{ FREE_UNTIL|datefmt }}.</p>
+<form method="post" class="form-narrow">
+  {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+  <label for="display_name">Name (optional)</label>
+  <input type="text" id="display_name" name="display_name" autocomplete="name">
+  <label for="email">Email</label>
+  <input type="email" id="email" name="email" required autocomplete="email">
+  <label for="password">Password</label>
+  <input type="password" id="password" name="password" required minlength="10" autocomplete="new-password">
+  <p class="field-hint">At least 10 characters.</p>
+  <div class="form-actions">
+    <button class="btn" type="submit">Create account</button>
+    <a class="faint" href="{{ url_for('auth.login') }}">I already have an account</a>
+  </div>
+</form>
+{% endblock %}

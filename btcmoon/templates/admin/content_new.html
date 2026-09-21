@@ -1,0 +1,34 @@
+{% extends "admin/_layout.html" %}
+{% block admin_content %}
+<h1>New {{ kind[:-1] }}</h1>
+<form method="post" class="card">
+  {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+  <label for="title">Title</label>
+  <input type="text" id="title" name="title" required autofocus>
+
+  {% if kind == 'articles' %}
+    <label for="summary">Summary</label>
+    <textarea id="summary" name="summary" style="min-height:70px"></textarea>
+  {% endif %}
+
+  <label for="body">{{ 'Prediction text' if kind == 'predictions' else 'Body (markdown)' }}</label>
+  <textarea id="body" name="body" required></textarea>
+
+  {% if kind == 'predictions' %}
+    <label for="test_criteria">Objective test criteria <span class="faint">(required)</span></label>
+    <textarea id="test_criteria" name="test_criteria" style="min-height:70px" required></textarea>
+    <label for="invalidation_criteria">Invalidation criteria</label>
+    <textarea id="invalidation_criteria" name="invalidation_criteria" style="min-height:70px"></textarea>
+    <label for="confidence">Confidence / uncertainty</label>
+    <input type="text" id="confidence" name="confidence" placeholder="e.g. low — small n, regime-dependent">
+    <p class="field-hint">The current research context is frozen into the evidence snapshot at creation.</p>
+  {% endif %}
+
+  {% if kind in ('articles', 'observations') %}
+    <label for="observed_at">Observation date <span class="faint">(the date this is <em>about</em>, not the publication date)</span></label>
+    <input type="datetime-local" id="observed_at" name="observed_at">
+  {% endif %}
+
+  <div class="form-actions"><button class="btn" type="submit">Create draft</button></div>
+</form>
+{% endblock %}

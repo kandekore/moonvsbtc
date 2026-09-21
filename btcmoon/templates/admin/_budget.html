@@ -1,0 +1,23 @@
+{% macro budget_widget(budget) %}
+<div class="card">
+  <h3>AI budget</h3>
+  <div class="budget-bar {% if budget.blocked %}over{% elif budget.warning_level %}warn{% endif %}">
+    <span style="width: {{ [budget.month_pct, 100]|min }}%"></span>
+  </div>
+  <p class="faint" style="margin:6px 0 0">
+    ${{ '%.4f'|format(budget.month_spend) }} of ${{ '%.2f'|format(budget.month_budget) }}
+    this month ({{ budget.month_pct }}%) &middot;
+    ${{ '%.4f'|format(budget.day_spend) }} of ${{ '%.2f'|format(budget.day_budget) }} today
+  </p>
+  {% if budget.blocked %}
+    <p class="flash flash-error" style="margin-top:10px">
+      <strong>Hard ceiling reached.</strong> Non-essential AI generation is paused.
+      The public site, data collection, news ingestion and this admin area keep running.
+    </p>
+  {% elif budget.warning_level %}
+    <p class="flash flash-warning" style="margin-top:10px">
+      Spend has passed {{ (budget.warning_level * 100)|int }}% of the monthly budget.
+    </p>
+  {% endif %}
+</div>
+{% endmacro %}

@@ -1,0 +1,95 @@
+{% extends "admin/_layout.html" %}
+{% block admin_content %}
+<h1>{{ item.title or 'Untitled' }}</h1>
+<div class="entry-meta">
+  <span class="outcome outcome-{{ 'consistent' if item.status=='published' else 'pending' }}">{{ item.status }}</span>
+  <span class="faint">{{ (item.provenance or '')|replace('_',' ') }}</span>
+  {% if item.published_at %}<span class="faint">Published {{ item.published_at|datetimefmt }}</span>{% endif %}
+</div>
+
+{% if is_locked %}
+  <div class="flash flash-warning">
+    <strong>This prediction is published and locked.</strong> Its text, criteria and
+    evidence snapshot are immutable. To correct or update it,
+    <a href="{{ url_for('admin.new_result', prediction_id=item.id) }}">append a result</a> instead.
+  </div>
+{% endif %}
+
+<form method="post" class="card">
+  {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+
+  <label for="title">Title</label>
+  <input type="text" id="title" name="title" value="{{ item.title or '' }}" {% if is_locked %}disabled{% endif %}>
+
+  {% if item.summary is defined %}
+    <label for="summary">Summary</label>
+    <textarea id="summary" name="summary" style="min-height:80px">{{ item.summary or '' }}</textarea>
+  {% endif %}
+
+  {% set body_field = 'body_markdown' if item.body_markdown is defined else ('prediction_text' if item.prediction_text is defined else 'body') %}
+  <label for="body">{{ 'Prediction text' if body_field == 'prediction_text' else 'Body (markdown)' }}</label>
+  <textarea id="body" name="{{ body_field }}" {% if is_locked %}disabled{% endif %}>{{ item[body_field] or '' }}</textarea>
+
+  {% if item.test_criteria is defined %}
+    <label for="test_criteria">Objective test criteria</label>
+    <textarea id="test_criteria" name="test_criteria" style="min-height:70px" {% if is_locked %}disabled{% endif %}>{{ item.test_criteria or '' }}</textarea>
+  {% endif %}
+  {% if item.invalidation_criteria is defined %}
+    <label for="invalidation_criteria">Invalidation criteria</label>
+    <textarea id="invalidation_criteria" name="invalidation_criteria" style="min-height:70px" {% if is_locked %}disabled{% endif %}>{{ item.invalidation_criteria or '' }}</textarea>
+  {% endif %}
+  {% if item.lessons is defined %}
+    <label for="lessons">Lessons</label>
+    <textarea id="lessons" name="lessons" style="min-height:70px">{{ item.lessons or '' }}</textarea>
+  {% endif %}
+
+  {% if item.outcome is defined %}
+    <label for="outcome">Outcome</label>
+    <select id="outcome" name="outcome">
+      {% for o in outcomes %}<option value="{{ o }}" {% if item.outcome == o %}selected{% endif %}>{{ o|outcome_label }}</option>{% endfor %}
+    </select>
+  {% endif %}
+
+  <label for="provenance">Provenance</label>
+  <select id="provenance" name="provenance">
+    {% for p in provenances %}<option value="{{ p }}" {% if item.provenance == p %}selected{% endif %}>{{ p|replace('_',' ')|title }}</option>{% endfor %}
+  </select>
+  <p class="field-hint">
+    <code>reconstructed_archive</code> and <code>research_paper</code> render a visible
+    notice on the public page saying the piece was written up after the fact.
+  </p>
+
+  {% if item.meta_description is defined %}
+    <label for="meta_description">Meta description (SEO)</label>
+    <input type="text" id="meta_description" name="meta_description" maxlength="320" value="{{ item.meta_description or '' }}">
+  {% endif %}
+
+  <div class="form-actions">
+    <button class="btn" name="action" value="save" type="submit">Save draft</button>
+    {% if item.status != 'published' %}
+      <button class="btn btn-ghost" name="action" value="publish" type="submit"
+        onclick="return confirm('Publish this to the public site?{% if item.__class__.__name__ == \'Prediction\' %} A published prediction becomes permanently immutable.{% endif %}')">Publish</button>
+    {% else %}
+      <button class="btn btn-ghost" name="action" value="unpublish" type="submit">Withdraw from site</button>
+    {% endif %}
+    <button class="btn btn-ghost" name="action" value="archive" type="submit">Archive</button>
+    {% if item.slug and item.status == 'published' %}
+      <a class="faint" href="/" target="_blank">View on site</a>
+    {% endif %}
+  </div>
+</form>
+
+{% if item.__class__.__name__ == 'Outlook' %}
+<form method="post" class="card">
+  {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+  <h3>Append a retrospective review</h3>
+  <p class="faint">Appends beneath the original text. The original is never edited.</p>
+  <textarea name="review" placeholder="What actually happened, and what that means for the thesis."></textarea>
+  <div class="form-actions"><button class="btn btn-ghost" name="action" value="append_review" type="submit">Append review</button></div>
+</form>
+{% endif %}
+
+{% if item.__class__.__name__ == 'Prediction' %}
+  <p><a class="btn btn-ghost btn-sm" href="{{ url_for('admin.new_result', prediction_id=item.id) }}">Record a result</a></p>
+{% endif %}
+{% endblock %}

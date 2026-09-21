@@ -1,0 +1,129 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Research &amp; Methodology</h1>
+<p class="lede muted">
+  The rules are fixed in advance and published in full. Lag windows, pivot
+  definitions, scoring weights and the strength formula are never changed because
+  recent price action did not fit them.
+</p>
+
+<section class="section">
+  <h2>The core measurement</h2>
+  <div class="card">
+    <p>
+      For each Full Moon we find the nearest <em>significant swing high</em> within
+      &plusmn;14 calendar days; for each New Moon, the nearest significant swing low.
+      The signed lag is <code>pivot date &minus; moon date</code>, so a positive
+      number means the pivot came <strong>after</strong> the moon.
+    </p>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          {% for key, value in methodology.items() %}
+            <tr><th>{{ key.replace('_',' ')|title }}</th><td>{{ value }}</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>What we have found so far</h2>
+  <div class="grid grid-2">
+    <div class="card">
+      <h3>The Full Moon lag</h3>
+      <p>
+        Over the recent two-year window, matched major highs came on average
+        <strong>+4.4 days</strong> after the Full Moon (median +4, SD 4.2, n=5).
+        Across 2017&ndash;2026, roughly <strong>70%</strong> of matched major highs
+        occurred after the Full Moon, mean about +3.2 days, median about +6.
+      </p>
+      <p class="faint">
+        Phase-shift and null controls weaken any claim that the astronomical Full
+        Moon <em>uniquely causes</em> the high. Small n, and the effect is
+        regime-dependent.
+      </p>
+    </div>
+    <div class="card">
+      <h3>The stronger lead</h3>
+      <p>
+        The New Moon / local low correspondence is the stronger empirical lead.
+        In 2026, 7 of the first 8 New Moons had a strict local low in T0:T+3, and
+        all 8 were within &plusmn;7 days.
+      </p>
+      <p class="faint">
+        Full-history behaviour is regime-dependent. Nodal strength is <em>not</em>
+        a reliable timing predictor.
+      </p>
+    </div>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Pattern Fit Score</h2>
+  <div class="card">
+    <p>A lunar cycle is scored out of 100, in four equal parts:</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Component</th><th class="num">Points</th><th>What it measures</th></tr></thead>
+        <tbody>
+          <tr><td>New-Moon low alignment</td><td class="num">25</td><td>Did a local low form near the New Moon?</td></tr>
+          <tr><td>Waxing appreciation</td><td class="num">25</td><td>Did price rise from New Moon to Full Moon?</td></tr>
+          <tr><td>Full-Moon high alignment</td><td class="num">25</td><td>Did a local high form near the Full Moon?</td></tr>
+          <tr><td>Waning weakening</td><td class="num">25</td><td>Did price fall from Full Moon to the next New Moon?</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="faint">
+      Nodal strength and market state are stored <strong>separately</strong> and do
+      not inflate the score.
+    </p>
+  </div>
+</section>
+
+<section class="section">
+  <h2>Frozen protocols</h2>
+  <p class="faint">
+    A protocol is registered before a test begins and is never edited afterwards.
+    A genuine methodology change is a new version with a link to what it supersedes.
+  </p>
+  {% for p in protocols %}
+    <div class="card">
+      <div class="entry-meta">
+        <span class="label label-research_update">v{{ p.version }}</span>
+        {% if p.is_frozen %}<span class="outcome outcome-consistent">Frozen {{ p.frozen_at|datefmt }}</span>{% endif %}
+        {% if p.window_start %}<span>{{ p.window_start|datefmt }} &rarr; {{ p.window_end|datefmt }}</span>{% endif %}
+      </div>
+      <h3>{{ p.title }}</h3>
+      <p class="muted">{{ p.summary }}</p>
+      <details>
+        <summary class="faint">The exact registered rules</summary>
+        <div class="table-wrap"><pre class="mono" style="white-space:pre-wrap;font-size:.82rem">{{ p.rules_json }}</pre></div>
+      </details>
+    </div>
+  {% else %}
+    <p class="muted">No protocols published yet.</p>
+  {% endfor %}
+</section>
+
+{% if papers %}
+<section class="section">
+  <h2>Papers &amp; long-form methodology</h2>
+  <ul class="entry-list">
+    {% for a in papers %}
+      <li>
+        <div class="entry-meta"><span>{{ a.published_at|datefmt }}</span></div>
+        <a class="entry-title" href="{{ url_for('public.article', slug=a.slug) }}">{{ a.title }}</a>
+        <p class="muted">{{ a.summary|truncate(220) }}</p>
+      </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<div class="disclaimer">
+  This work is exploratory and hypothesis-generating. Its conclusion is continued
+  testing, <strong>not</strong> a standalone lunar trading signal.
+</div>
+{% endblock %}

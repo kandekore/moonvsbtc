@@ -1,0 +1,36 @@
+{% extends "admin/_layout.html" %}
+{% block admin_content %}
+<h1>Record a result</h1>
+<div class="locked-box">
+  <div class="locked-head"><span class="lock">&#128274;</span> The prediction this answers &mdash; unedited</div>
+  <p><strong>{{ prediction.title }}</strong></p>
+  <p>{{ prediction.prediction_text }}</p>
+  <p class="faint">Test criteria: {{ prediction.test_criteria }}</p>
+</div>
+
+<form method="post" class="card">
+  {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+  <label for="title">Result title</label>
+  <input type="text" id="title" name="title" value="Result: {{ prediction.title }}">
+  <label for="outcome">Outcome</label>
+  <select id="outcome" name="outcome">
+    {% for o in outcomes %}<option value="{{ o }}">{{ o|outcome_label }}</option>{% endfor %}
+  </select>
+  <p class="field-hint">A miss is a valid, publishable result. Do not soften it.</p>
+  <label for="body">What actually happened (markdown)</label>
+  <textarea id="body" name="body" required></textarea>
+  <label for="lessons">Lessons</label>
+  <textarea id="lessons" name="lessons" style="min-height:70px"></textarea>
+
+  <div class="grid grid-3">
+    <div><label for="timing_error_days">Timing error (days)</label>
+      <input type="number" step="0.1" id="timing_error_days" name="timing_error_days"></div>
+    <div><label for="price_at_result">Price at result</label>
+      <input type="number" step="0.01" id="price_at_result" name="price_at_result"></div>
+    <div><label for="max_upside_pct">Max upside %</label>
+      <input type="number" step="0.01" id="max_upside_pct" name="max_upside_pct"></div>
+  </div>
+
+  <div class="form-actions"><button class="btn" type="submit">Record as draft</button></div>
+</form>
+{% endblock %}

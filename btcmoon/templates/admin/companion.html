@@ -1,0 +1,80 @@
+{% extends "admin/_layout.html" %}
+{% block admin_content %}
+<h1>Companion</h1>
+<p class="faint">
+  Private research chat. It retrieves active experiments, prior predictions and
+  results, frozen protocols, lunar and natal context, market data and recent news
+  before answering. Nothing here publishes automatically.
+</p>
+
+{% if budget.blocked %}
+  <div class="flash flash-warning">
+    AI generation is paused &mdash; the budget ceiling has been reached. The Companion
+    will still return the retrieved research context without calling the model.
+  </div>
+{% endif %}
+
+<div class="grid" style="grid-template-columns: 240px 1fr; gap:22px; align-items:start">
+  <div class="card">
+    <h3 style="font-size:.9rem">Threads</h3>
+    <a class="btn btn-ghost btn-sm" href="{{ url_for('admin.companion') }}">New thread</a>
+    <div style="margin-top:12px">
+      {% for c in conversations %}
+        <a href="{{ url_for('admin.companion', conversation_id=c.id) }}"
+           style="display:block;padding:6px 0;font-size:.86rem;color:{% if conversation and c.id == conversation.id %}var(--gold){% else %}var(--ink-dim){% endif %}">
+          {{ c.title|truncate(46) }}
+        </a>
+      {% else %}
+        <p class="faint">No threads yet.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div>
+    {% if conversation %}
+      <div class="chat">
+        {% for m in conversation.messages %}
+          <div class="msg msg-{{ m.role }}">
+            <div class="msg-role">{{ 'You' if m.role == 'user' else 'Researcher' }}{% if m.model %} &middot; {{ m.model }}{% endif %}</div>
+            <div class="prose">{{ m.content|markdown|safe }}</div>
+          </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    <form method="post" class="card">
+      {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+      <label for="message">Ask the researcher</label>
+      <textarea id="message" name="message" required
+        placeholder="e.g. Where are we on the September New-Moon test? What does the T0:T+3 data actually say?"></textarea>
+      <div class="form-actions"><button class="btn" type="submit">Send</button></div>
+    </form>
+
+    {% if conversation %}
+      <form method="post" action="{{ url_for('admin.promote', conversation_id=conversation.id) }}" class="card">
+        {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+        <h3>Promote to the editorial record</h3>
+        <p class="faint">Creates a DRAFT. Nothing becomes public until you publish it,
+          and private trading detail is never carried across automatically.</p>
+        <label for="p_title">Title</label>
+        <input type="text" id="p_title" name="title" required>
+        <label for="p_body">Body / prediction text</label>
+        <textarea id="p_body" name="body"></textarea>
+        <label for="p_criteria">Objective test criteria (required for a prediction)</label>
+        <input type="text" id="p_criteria" name="test_criteria">
+        <label for="p_inval">Invalidation criteria</label>
+        <input type="text" id="p_inval" name="invalidation_criteria">
+        <label for="p_conf">Confidence / uncertainty</label>
+        <input type="text" id="p_conf" name="confidence">
+        <div class="form-actions">
+          <button class="btn btn-ghost btn-sm" name="action" value="observation" type="submit">Create Observation</button>
+          <button class="btn btn-ghost btn-sm" name="action" value="hypothesis" type="submit">Create Hypothesis</button>
+          <button class="btn btn-ghost btn-sm" name="action" value="prediction" type="submit">Create Prediction</button>
+          <button class="btn btn-ghost btn-sm" name="action" value="article" type="submit">Draft Article</button>
+          <button class="btn btn-ghost btn-sm" name="action" value="archive" type="submit">Archive thread</button>
+        </div>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

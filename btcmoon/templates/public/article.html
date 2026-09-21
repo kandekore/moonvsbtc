@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% from "partials/provenance.html" import notice, record_badge %}
+{% block head_extra %}
+{% if schema %}<script type="application/ld+json">{{ schema|safe }}</script>{% endif %}
+{% endblock %}
+{% block content %}
+<article>
+  <div class="entry-meta">
+    {% if article.record_kind %}{{ record_badge(article.record_kind) }}{% endif %}
+    {% if article.published_at %}<span>Published {{ article.published_at|datefmt }}</span>{% endif %}
+    {% if article.observed_at %}<span>Describes {{ article.observed_at|datefmt }}</span>{% endif %}
+  </div>
+  <h1>{{ article.title }}</h1>
+  {% if article.subtitle %}<p class="lede muted">{{ article.subtitle }}</p>{% endif %}
+  {{ notice(article) }}
+  <div class="prose">{{ article.body_markdown|markdown|safe }}</div>
+
+  {% if sources %}
+    <div class="card">
+      <h3>Sources</h3>
+      <ul>
+        {% for s in sources %}
+          <li>
+            {% if s is mapping %}
+              {% if s.url %}<a href="{{ s.url }}" rel="noopener noreferrer nofollow" target="_blank">{{ s.title or s.url }}</a>{% else %}{{ s.title }}{% endif %}
+              {% if s.publisher %}<span class="faint"> &mdash; {{ s.publisher }}</span>{% endif %}
+            {% else %}{{ s }}{% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+
+  <div class="disclaimer">
+    Part of an ongoing public experiment. Not investment advice.
+  </div>
+</article>
+{% endblock %}

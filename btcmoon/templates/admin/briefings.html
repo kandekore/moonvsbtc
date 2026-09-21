@@ -1,0 +1,30 @@
+{% extends "admin/_layout.html" %}
+{% block admin_content %}
+<h1>Research briefings</h1>
+<p class="faint">
+  Generated twice daily by cron: <code class="mono">python -m jobs.morning_brief</code> and
+  <code class="mono">python -m jobs.evening_brief</code>. Private &mdash; never published.
+</p>
+{% if briefings %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>When</th><th>Kind</th><th>Headline</th><th>Triage</th><th>AI</th><th class="num">Cost</th><th>Reviewed</th></tr></thead>
+      <tbody>
+        {% for b in briefings %}
+          <tr>
+            <td class="mono">{{ b.generated_at|datefmt('%d %b %Y %H:%M') }}</td>
+            <td>{{ b.kind|title }}</td>
+            <td><a href="{{ url_for('admin.briefing', briefing_id=b.id) }}">{{ b.headline|truncate(70) }}</a></td>
+            <td>{{ triage_labels.get(b.triage, b.triage) }}</td>
+            <td class="faint">{{ 'yes' if b.ai_generated else 'deterministic' }}</td>
+            <td class="num">${{ '%.4f'|format(b.estimated_cost_usd) }}</td>
+            <td>{{ '✓' if b.reviewed_at else '—' }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="muted">No briefings generated yet.</p>
+{% endif %}
+{% endblock %}

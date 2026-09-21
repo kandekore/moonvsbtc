@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% from "partials/provenance.html" import notice, record_badge, outcome_badge %}
+{% block head_extra %}
+<script type="application/ld+json">{{ schema|safe }}</script>
+{% endblock %}
+{% block content %}
+<article>
+  <div class="entry-meta">{{ record_badge('prediction') }} {{ outcome_badge(prediction.outcome) }}</div>
+  <h1>{{ prediction.title }}</h1>
+  {{ notice(prediction) }}
+
+  <div class="locked-box">
+    <div class="locked-head">
+      <span class="lock" aria-hidden="true">&#128274;</span>
+      Locked at publication &middot; {{ prediction.published_at|datetimefmt }}
+    </div>
+    <dl>
+      <dt>Prediction</dt>
+      <dd>{{ prediction.prediction_text }}</dd>
+      <dt>Objective test criteria</dt>
+      <dd>{{ prediction.test_criteria }}</dd>
+      {% if prediction.invalidation_criteria %}
+        <dt>Invalidation criteria</dt><dd>{{ prediction.invalidation_criteria }}</dd>
+      {% endif %}
+      {% if prediction.confidence %}
+        <dt>Confidence / uncertainty</dt><dd>{{ prediction.confidence }}</dd>
+      {% endif %}
+      <dt>Made at</dt><dd>{{ prediction.made_at|datetimefmt }}</dd>
+      {% if prediction.horizon_end %}<dt>Horizon ends</dt><dd>{{ prediction.horizon_end|datetimefmt }}</dd>{% endif %}
+    </dl>
+    {% if evidence %}
+      <details style="margin-top:16px">
+        <summary class="faint">Evidence snapshot frozen at the time of the prediction</summary>
+        <div class="table-wrap"><pre class="mono" style="white-space:pre-wrap;font-size:.8rem">{{ evidence }}</pre></div>
+      </details>
+    {% endif %}
+    <p class="faint" style="margin:14px 0 0">
+      This box is immutable. Corrections and outcomes are appended below as separate,
+      separately timestamped records &mdash; the original is never edited.
+    </p>
+  </div>
+
+  <h2>Results</h2>
+  {% if results %}
+    {% for r in results %}
+      <div class="result-block">
+        <div class="result-head">
+          {{ record_badge('result') }} {{ outcome_badge(r.outcome) }}
+          <span class="faint">Recorded {{ r.recorded_at|datetimefmt }}</span>
+        </div>
+        <h3>{{ r.title }}</h3>
+        <div class="prose">{{ r.body|markdown|safe }}</div>
+        {% if r.timing_error_days is not none %}<p class="faint">Timing error: {{ r.timing_error_days|days }}</p>{% endif %}
+        {% if r.lessons %}<p><strong>Lessons:</strong> {{ r.lessons }}</p>{% endif %}
+        <p><a href="{{ url_for('public.result', slug=r.slug) }}">Full result record &rarr;</a></p>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p class="muted">No result has been recorded yet. This prediction is still open.</p>
+  {% endif %}
+
+  <div class="disclaimer">
+    Recorded as part of an ongoing experiment. Not investment advice, and not a
+    trade instruction.
+  </div>
+</article>
+{% endblock %}

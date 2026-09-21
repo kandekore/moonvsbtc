@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% from "partials/provenance.html" import record_badge %}
+{% block content %}
+<h1>BTC Outlooks</h1>
+<p class="lede muted">
+  Daily, monthly and yearly outlooks built from Bitcoin&rsquo;s natal chart,
+  the current lunar phase, live experiment windows, technical structure and
+  scheduled events. Daily outlooks are normally published one day in advance.
+</p>
+
+{% if tomorrow %}
+  <div class="card">
+    <div class="entry-meta">{{ record_badge('experimental') }}<span>Tomorrow &mdash; {{ tomorrow.period_start|datefmt }}</span></div>
+    <a class="entry-title" href="{{ url_for('public.outlook', slug=tomorrow.slug) }}">{{ tomorrow.title }}</a>
+    <p class="muted">{{ tomorrow.summary }}</p>
+  </div>
+{% endif %}
+
+{% macro outlook_list(items, heading) %}
+  <section class="section">
+    <h2>{{ heading }}</h2>
+    {% if items %}
+      <ul class="entry-list">
+        {% for o in items %}
+          <li>
+            <div class="entry-meta">
+              <span>{{ o.period_start|datefmt }}{% if o.period_end != o.period_start %} &ndash; {{ o.period_end|datefmt }}{% endif %}</span>
+              {% if o.review_markdown %}<span class="outcome outcome-consistent">Review appended</span>{% endif %}
+            </div>
+            <a class="entry-title" href="{{ url_for('public.outlook', slug=o.slug) }}">{{ o.title }}</a>
+            <p class="muted">{{ o.summary|truncate(200) }}</p>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="muted">None published yet.</p>
+    {% endif %}
+  </section>
+{% endmacro %}
+
+{{ outlook_list(daily, 'Daily outlooks') }}
+{{ outlook_list(monthly, 'Monthly outlooks') }}
+{{ outlook_list(yearly, 'Yearly outlooks') }}
+
+<div class="disclaimer">
+  Historical outlooks stay online permanently, and can gain an appended
+  retrospective review. The original text is never edited.
+  {% if IS_FREE_PERIOD %} All outlooks are free through {{ FREE_UNTIL|datefmt }}.{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Something went wrong</h1>
+<p class="muted">An error occurred and has been logged. Please try again.</p>
+<p><a href="{{ url_for('public.home') }}">Back to the experiment &rarr;</a></p>
+{% endblock %}

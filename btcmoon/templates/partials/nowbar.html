@@ -1,0 +1,33 @@
+{% macro btc_moon_now(btc, moon) %}
+<div class="grid grid-4 section">
+  {% if btc %}
+    <div class="stat">
+      <div class="k">BTC now</div>
+      <div class="v v-gold">{{ btc.price|money }}</div>
+      <div class="d {% if btc.change_24h_pct and btc.change_24h_pct > 0 %}v-up{% elif btc.change_24h_pct %}v-down{% endif %}">
+        {{ btc.change_24h_pct|pct }} 24h &middot; {{ btc.change_7d_pct|pct }} 7d
+      </div>
+    </div>
+    <div class="stat">
+      <div class="k">Market structure</div>
+      <div class="v" style="font-size:1.05rem">{{ btc.regime }}</div>
+      <div class="d">RSI {{ btc.rsi14 }} &middot; {{ btc.pct_from_ath|pct }} from ATH</div>
+    </div>
+  {% else %}
+    <div class="stat"><div class="k">BTC now</div><div class="v">&mdash;</div>
+      <div class="d">Market data temporarily unavailable</div></div>
+  {% endif %}
+  {% if moon %}
+    <div class="stat">
+      <div class="k">Moon now</div>
+      <div class="v v-blue" style="font-size:1.05rem">{{ moon.phase_name }}</div>
+      <div class="d">{{ moon.illumination_pct }}% lit &middot; day {{ moon.age_days }} of cycle</div>
+    </div>
+    <div class="stat">
+      <div class="k">Offsets</div>
+      <div class="v" style="font-size:1.05rem">FM{{ moon.days_since_full_moon|round(1) }}d</div>
+      <div class="d">Next full moon in {{ moon.days_to_next_full_moon|round(1) }} d</div>
+    </div>
+  {% endif %}
+</div>
+{% endmacro %}

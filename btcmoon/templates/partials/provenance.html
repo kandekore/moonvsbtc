@@ -1,0 +1,25 @@
+{% macro notice(obj) %}
+  {% set prov = obj.provenance %}
+  {% if prov in ('reconstructed_archive', 'research_paper') %}
+    <div class="provenance-notice">
+      <strong>{% if prov == 'reconstructed_archive' %}Reconstructed archive entry.{% else %}From the exploratory research paper.{% endif %}</strong>
+      {% if obj.observed_at %}It describes {{ obj.observed_at|datefmt }}{% endif %}{% if obj.published_at %}, and was published on this site on {{ obj.published_at|datefmt }}{% endif %}.
+      It was written up from contemporaneous records after the fact &mdash; this site did
+      <em>not</em> publish it on the historical date.
+    </div>
+  {% elif prov == 'contemporaneous_chat' %}
+    <div class="provenance-notice">
+      <strong>Recorded as it happened.</strong>
+      Noted privately on {{ obj.observed_at|datefmt if obj.observed_at else 'the date shown' }}
+      and promoted to the public record{% if obj.published_at %} on {{ obj.published_at|datefmt }}{% endif %}.
+    </div>
+  {% endif %}
+{% endmacro %}
+
+{% macro record_badge(kind) %}
+  {% if kind %}<span class="label label-{{ kind }}">{{ kind|record_label }}</span>{% endif %}
+{% endmacro %}
+
+{% macro outcome_badge(outcome) %}
+  {% if outcome %}<span class="outcome outcome-{{ outcome }}">{{ outcome|outcome_label }}</span>{% endif %}
+{% endmacro %}

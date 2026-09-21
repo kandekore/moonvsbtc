@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>BTC Transit Calendar</h1>
+<p class="lede muted">
+  The most significant transits to Bitcoin&rsquo;s natal chart over the next 30
+  days, from {{ start|datefmt }}. Experimental &mdash; see the
+  <a href="{{ url_for('public.natal') }}">chart assumptions</a>.
+</p>
+{% if calendar %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>Date</th><th>Transits within orb</th></tr></thead>
+      <tbody>
+        {% for day in calendar %}
+          <tr>
+            <td class="mono">{{ day.date }}</td>
+            <td>
+              {% for t in day.transits %}
+                <div>Transiting <strong>{{ t.transiting_body }}</strong> {{ t.aspect }}
+                  natal <strong>{{ t.natal_point }}</strong>
+                  <span class="faint">({{ t.orb_deg }}&deg;, {{ 'applying' if t.is_applying else 'separating' }})</span>
+                </div>
+              {% endfor %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+{% else %}
+  <p class="muted">No significant transits in this window.</p>
+{% endif %}
+<div class="disclaimer">
+  Astrology is not established financial forecasting. This calendar is published
+  so that interpretations recorded in advance can be checked afterwards.
+</div>
+{% endblock %}

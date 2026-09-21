@@ -1,0 +1,41 @@
+{% extends "admin/_layout.html" %}
+{% from "admin/_budget.html" import budget_widget %}
+{% block admin_content %}
+<h1>Settings</h1>
+<p class="faint">
+  These override the environment defaults at runtime, so model choice and budget
+  can change without a deploy. Leave a field empty to fall back to the
+  environment variable.
+</p>
+{{ budget_widget(budget) }}
+
+<form method="post" class="card">
+  {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+
+  <h3>Budget</h3>
+  <label for="ai_monthly_budget_usd">Monthly hard ceiling (USD)</label>
+  <input type="number" step="0.01" id="ai_monthly_budget_usd" name="ai_monthly_budget_usd"
+         value="{{ settings.get('ai_monthly_budget_usd','') }}" placeholder="{{ budget.month_budget }}">
+  <p class="field-hint">At the ceiling, all non-essential AI generation stops. The public
+    site, news ingestion, market data and this admin area keep running.</p>
+
+  <label for="ai_daily_budget_usd">Daily ceiling (USD)</label>
+  <input type="number" step="0.01" id="ai_daily_budget_usd" name="ai_daily_budget_usd"
+         value="{{ settings.get('ai_daily_budget_usd','') }}" placeholder="{{ budget.day_budget }}">
+
+  <h3 style="margin-top:26px">Model per task</h3>
+  <p class="field-hint">Keep classification and summaries on a cheap model; reserve the
+    strong model for synthesis and editor-approved writing.</p>
+  {% for task, tier in tasks.items() %}
+    <label for="ai_model_{{ task }}">{{ task }} <span class="faint">({{ tier }})</span></label>
+    <input type="text" id="ai_model_{{ task }}" name="ai_model_{{ task }}"
+           value="{{ settings.get('ai_model_' ~ task, '') }}" placeholder="{{ effective[task] }}">
+  {% endfor %}
+
+  <h3 style="margin-top:26px">Pricing overrides</h3>
+  <label for="ai_pricing_overrides">JSON: {"model": {"input": 0.15, "output": 0.60}} per 1M tokens</label>
+  <textarea id="ai_pricing_overrides" name="ai_pricing_overrides" style="min-height:90px">{{ settings.get('ai_pricing_overrides','') }}</textarea>
+
+  <div class="form-actions"><button class="btn" type="submit">Save settings</button></div>
+</form>
+{% endblock %}

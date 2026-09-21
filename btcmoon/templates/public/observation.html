@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+{% from "partials/provenance.html" import notice, record_badge %}
+{% block content %}
+<article>
+  <div class="entry-meta">{{ record_badge('observation') }}<span>Observed {{ observation.observed_at|datetimefmt }}</span></div>
+  <h1>{{ observation.title }}</h1>
+  {{ notice(observation) }}
+  <div class="prose">{{ observation.body|markdown|safe }}</div>
+  <div class="disclaimer">
+    An observation, not a prediction. Recorded as part of an ongoing public
+    experiment and not investment advice.
+  </div>
+</article>
+{% endblock %}
