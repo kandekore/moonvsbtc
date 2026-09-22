@@ -24,10 +24,14 @@ _EXPORTS = {
     "PATTERN_FIT_WEIGHTS": "pattern_fit",
     "PatternFit": "pattern_fit",
     "pattern_fit_score": "pattern_fit",
+    "INTRADAY_OFFSET_PROTOCOL": "protocols",
     "SEPTEMBER_2026_PROTOCOL": "protocols",
     "WEBSITE_METHODOLOGY_PROTOCOL": "protocols",
     "evaluate_nm_low_test": "protocols",
     "seed_protocols": "protocols",
+    "EFFECTIVE_FROM": "intraday_offset",
+    "IntradayOffset": "intraday_offset",
+    "LEGACY_FIGURES_ARE_FROZEN": "intraday_offset",
     "MIN_PRIOR_MATCHES": "track_record",
     "TrackRecordEntry": "track_record",
     "build_track_record": "track_record",
@@ -61,9 +65,12 @@ if TYPE_CHECKING:                    # for type checkers and IDEs only
         website_params,
     )
     from .pattern_fit import PATTERN_FIT_WEIGHTS, PatternFit, pattern_fit_score
+    from .intraday_offset import (
+        EFFECTIVE_FROM, LEGACY_FIGURES_ARE_FROZEN, IntradayOffset,
+    )
     from .protocols import (
-        SEPTEMBER_2026_PROTOCOL, WEBSITE_METHODOLOGY_PROTOCOL,
-        evaluate_nm_low_test, seed_protocols,
+        INTRADAY_OFFSET_PROTOCOL, SEPTEMBER_2026_PROTOCOL,
+        WEBSITE_METHODOLOGY_PROTOCOL, evaluate_nm_low_test, seed_protocols,
     )
     from .track_record import (
         MIN_PRIOR_MATCHES, TrackRecordEntry, build_track_record,

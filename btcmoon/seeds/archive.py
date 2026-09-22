@@ -366,7 +366,7 @@ is discussed, and reviewed in the experiment record.
 """,
         ),
         dict(
-            title="Prospective Full-Moon +4.4-day turning-window observation",
+            title="Full-Moon +4.4-day turning window: observed high at FM+6 calendar days",
             observed_at=dt.datetime(2026, 8, 31, 9, 0),
             experiment=aug,
             body=f"""
@@ -378,10 +378,31 @@ The mean lag has a standard deviation of about 4.2 days on n=5; a window that wi
 is not a timing signal, and treating it as one would misrepresent what the data
 supports.
 
-What the verified data shows: the cycle high came on **{f['aug_cycle_high_date']}**
-at **${f['aug_cycle_high']:,.2f}**, which is Full Moon **+6 days** - outside the
-+4.4-day centre but comfortably inside the one-standard-deviation band. Recorded as
-consistent with the distribution, and *not* as a hit.
+What the verified data shows: the cycle high came on **{f['aug_cycle_high_date']}**,
+which under the frozen methodology - lunar events reduced to calendar dates before
+the signed lag is taken - is **Full Moon +6 calendar days**.
+
+Placed against the published distribution:
+
+| Reference | Figure | This observation |
+|---|---|---|
+| Recent two-year mean (n=5) | +4.4 d | **later** than the mean |
+| 2017-2026 mean (n=31) | +3.2 d | later |
+| 2017-2026 median (n=31) | +6 d | **approximately on the median** |
+
+So this is recorded as **falling later than the recent +4.4-day mean while landing
+approximately on the broader historical median**. It is explicitly *not* recorded
+as a +4.4 hit, nor as +5. The recent mean carries a standard deviation of about
+4.2 days on n=5; a window that wide is not a timing signal, and +6 sits inside it
+without that being evidence of anything.
+
+The +4.4-day statistic is unchanged by this observation. It remains the reproduced
+mean of the historical calendar-day sample; a single later outcome is an
+observation to be added to the record, not a reason to re-fit the statistic.
+
+An exact intraday offset - syzygy instant to pivot instant, in hours - is a
+separate prospective metric (`intraday-lunar-offset-v1`) and is deliberately NOT
+applied to this observation.
 """,
         ),
         dict(

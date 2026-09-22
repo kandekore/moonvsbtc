@@ -64,7 +64,27 @@ st.markdown(
 # ---------------------------------------------------------------------------
 @st.cache_data(ttl=60 * 60, show_spinner="Downloading BTC price history…")
 def load_price(start: str) -> pd.DataFrame:
+    """Daily CLOSE only - the input the frozen website methodology expects."""
     return me.fetch_btc(start=start)
+
+
+@st.cache_data(ttl=60 * 60, show_spinner="Downloading intraday highs and lows…")
+def load_ohlc(start: str) -> pd.DataFrame | None:
+    """Daily OHLC, for finding the ACTUAL high or low rather than the closing one.
+
+    A close can miss a spike: the lowest price traded in a window often falls on
+    a different day from the lowest close. Returns ``None`` if unavailable, and
+    the track record then says so rather than quietly reverting to closes.
+    """
+    try:
+        from btcmoon.market_data import get_ohlc_history
+
+        df = get_ohlc_history(start=start)
+        if df is None or df.empty or not {"high", "low"} <= set(df.columns):
+            return None
+        return df
+    except Exception:
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -111,6 +131,7 @@ st.sidebar.caption(
 # Run analysis (always on FULL history — the view range only zooms the chart)
 # ---------------------------------------------------------------------------
 price = load_price(start)
+ohlc = load_ohlc(start)
 res = me.run_analysis(
     distance=distance,
     prominence_pct=prominence_pct,
@@ -361,7 +382,19 @@ with tab_record:
         "has elapsed is dropped from it."
     )
 
-    c1, c2 = st.columns([3, 2])
+    c0, c1, c2 = st.columns([2, 3, 2])
+    window_mode = c0.radio(
+        "Search window",
+        ["Forward only (T0 → T+n)", "Symmetric (±n)"],
+        help=(
+            "Forward only looks from the moon onwards, as the pre-registered "
+            "New-Moon protocol does (T0:T+3). Symmetric also looks BACK up to n "
+            "days — that is what the legacy website matcher does, but it spans "
+            "most of a lunar month, so it can pick up an extreme belonging to the "
+            "PREVIOUS cycle and credit it to this moon."
+        ),
+    )
+    mode_key = "forward" if window_mode.startswith("Forward") else "symmetric"
     measure = c1.radio(
         "What counts as 'the turn'",
         ["Local extreme (always measurable)", "Significant pivot (rare)"],
@@ -382,7 +415,27 @@ with tab_record:
         ),
     )
 
-    entries = build_track_record(res, basis=basis.replace("-", "_"), max_lag=max_lag)
+    entries = build_track_record(res, basis=basis.replace("-", "_"),
+                                 max_lag=max_lag, ohlc=ohlc,
+                                 window_mode=mode_key)
+    source = next((e.extreme_source for e in entries if e.extreme_source), None)
+    if measure_key == "extreme":
+        if source == "close":
+            st.error(
+                "**Intraday highs and lows are unavailable, so these extremes were "
+                "found on CLOSING prices.** A close can miss a spike entirely — the "
+                "lowest price traded in a window often falls on a different day from "
+                "the lowest close. Treat the dates below as approximate until OHLC "
+                "data returns.",
+                icon="⚠️",
+            )
+        else:
+            st.caption(
+                "Extremes are the **actual intraday high (tops) / low (bottoms)** — "
+                "the highest and lowest prices traded, not closing prices. The "
+                "significant-pivot measure and the headline offsets above remain on "
+                "closes, as the frozen website methodology defines them."
+            )
     summary = track_record_summary(entries, measure=measure_key)
     fm, nm = summary["full_moon_to_high"], summary["new_moon_to_low"]
 
@@ -428,7 +481,8 @@ with tab_record:
     # --- the number that actually matters ---------------------------------
     if measure_key == "extreme":
         st.markdown("#### Does the Moon beat a random date?")
-        base = placebo_baseline(res, max_lag=max_lag, n_trials=1000)
+        base = placebo_baseline(res, max_lag=max_lag, n_trials=1000, ohlc=ohlc,
+                                window_mode=mode_key)
         bc = st.columns(2)
         for col, (key, name) in zip(bc, (("full_moon_to_high", "Full Moon → high"),
                                          ("new_moon_to_low", "New Moon → low"))):
@@ -466,7 +520,9 @@ with tab_record:
              "rather than turning in it.",
     ) if measure_key == "extreme" else False
     turns_only = f3.checkbox(
-        "Only where the extreme was a significant pivot", value=False,
+        "Only genuine turns (strict 7-day rule)", value=False,
+        help="The extreme must be strictly beyond the 3 bars either side of it "
+             "on intraday prices — a real pivot, not just the window maximum.",
     ) if measure_key == "extreme" else False
 
     df = track_record_frame(entries)
@@ -492,12 +548,13 @@ with tab_record:
         })
         if measure_key == "extreme":
             view["Real turn?"] = df["extreme_is_turning_point"].map(
-                {True: "✅ pivot", False: "— minor"})
+                {True: "✅ strict turn", False: "— no turn"})
             view["Edge of window?"] = df["extreme_at_window_edge"].map(
                 {True: "⚠️ trending", False: ""})
-            view["Close $"] = df["extreme_close"]
+            view["Price $"] = df["extreme_price"]
+            view["From"] = df["extreme_source"]
         else:
-            view["Close $"] = df["pivot_close"]
+            view["Price $"] = df["pivot_close"]
 
         st.dataframe(
             view, use_container_width=True, hide_index=True, height=420,
@@ -506,7 +563,7 @@ with tab_record:
                 "Error (d)": st.column_config.NumberColumn(
                     format="%+.2f",
                     help="actual − expected. Positive = the turn came later than expected."),
-                "Close $": st.column_config.NumberColumn(format="$%.0f"),
+                "Price $": st.column_config.NumberColumn(format="$%.0f"),
             },
         )
         st.download_button(
@@ -536,6 +593,16 @@ with tab_record:
         )
         st.plotly_chart(fig_err, use_container_width=True)
 
+    if mode_key == "symmetric":
+        st.info(
+            "**Symmetric window.** A ±%d day window spans most of a synodic "
+            "month, so the extreme it finds may belong to the previous cycle — "
+            "e.g. the 12 Aug 2026 New Moon returns a low 9 days *before* it, "
+            "which really belongs to the preceding phase. Switch to forward-only "
+            "to measure the way the pre-registered protocol does." % max_lag,
+            icon="ℹ️",
+        )
+
     with st.expander("How to read this — two different questions"):
         st.markdown(
             f"""
@@ -547,6 +614,10 @@ That is why this view is populated where the old one said "no data".
 detector (spacing 30, prominence 15% of median close) finds about one pivot per
 91 days, against a moon every 14.8 days — so most moons cannot match one. That
 is a property of the detector, not missing data.
+
+**"Real turn?"** applies the protocol's strict 7-day rule to intraday prices:
+the HIGH (or LOW) must be strictly beyond the three bars either side. A window
+maximum that fails this was not a turn — price was passing through.
 
 **The window-edge warning matters.** {fm['n_extreme_at_window_edge'] + nm['n_extreme_at_window_edge']}
 of {fm['n_scored'] + nm['n_scored']} extremes sit on the boundary of the window.

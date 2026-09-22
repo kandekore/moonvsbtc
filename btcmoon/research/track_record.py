@@ -35,12 +35,23 @@ pseudo-moons on random dates through the same pipeline; the honest result is the
 Everything here reads what ``moon_engine`` already computed with the frozen
 website parameters. No protocol parameter is changed (spec s8).
 
-Close-based throughout
-----------------------
-The website methodology - and therefore every number in this module - is defined
-on the daily **CLOSE**. The strict low-based rule in ``pivots.py`` belongs to the
-New-Moon protocol and must not be mixed in here; doing so is exactly the error
-recorded in the PROJECT_CONTEXT correction log.
+Which price defines "the high"?
+-------------------------------
+The *actual* high or low of a period is an intraday extreme: the highest price
+traded (daily HIGH) or the lowest (daily LOW). A closing price can miss a spike
+entirely - on 2026-08-03 BTC traded down to 62,227, the lowest price in the whole
+window, yet its close was higher than 2026-08-01's, so a close-based search put
+the low on the wrong day.
+
+So measure A uses **HIGH for tops and LOW for bottoms**, and falls back to close
+only when no OHLC frame is supplied (``extreme_source`` records which was used).
+
+This does NOT contaminate the frozen methodology. Measure B - the matched
+significant pivot, the published +4.4 d benchmark and every ``OffsetStats``
+figure - stays exactly as ``moon_engine`` computes it, on CLOSE. The two are
+reported side by side and never averaged together. Keeping that boundary
+explicit is the lesson of the PROJECT_CONTEXT correction log, which records the
+opposite error: applying a close-based rule where a low-based one was required.
 """
 from __future__ import annotations
 
@@ -54,6 +65,7 @@ import pandas as pd
 import moon_engine as me
 
 from .legacy import WEBSITE_METHODOLOGY
+from .pivots import is_strict_local_high, is_strict_local_low
 
 #: Fewest prior observations before an expectation is formed. Below this the
 #: mean is noise, and the entry is reported as undecidable rather than scored.
@@ -61,6 +73,17 @@ MIN_PRIOR_MATCHES = 3
 
 BASES = ("walk_forward", "full_sample")
 MEASURES = ("extreme", "pivot")
+
+#: How the search window is placed around the moon.
+#:   "symmetric" - moon +/- max_lag. This is what the legacy website matcher
+#:                 does, and it allows a NEGATIVE lag: the turn may precede the
+#:                 moon. It also reaches roughly half a synodic month back, so
+#:                 it can pick up an extreme that belongs to the PREVIOUS cycle
+#:                 and attribute it to this moon.
+#:   "forward"   - moon .. moon + max_lag only. This is how the pre-registered
+#:                 New-Moon protocol is stated (T0:T+3) and it cannot borrow a
+#:                 turn from the preceding phase.
+WINDOW_MODES = ("symmetric", "forward")
 
 
 @dataclass
@@ -74,8 +97,14 @@ class TrackRecordEntry:
     # --- A. the local extreme in the window (always decidable) -------------
     extreme_date: dt.date | None
     extreme_offset_days: int | None
-    extreme_close: float | None
-    #: Is that extreme also a significant pivot per the frozen detector?
+    #: The extreme price itself - the intraday HIGH (tops) or LOW (bottoms).
+    extreme_price: float | None
+    #: Which column it came from: "high", "low", or "close" when no OHLC frame
+    #: was available. A close-based extreme can sit on the wrong day.
+    extreme_source: str | None
+    #: Is the extreme a genuine turn? Tested with the strict 7-day intraday
+    #: rule - HIGH strictly above (or LOW strictly below) the 3 bars either
+    #: side. ``None`` when the bars needed to decide are not present.
     extreme_is_turning_point: bool | None
     #: True when the extreme sits ON the window boundary, which means the real
     #: extreme almost certainly lies outside it - price trended through rather
@@ -136,35 +165,73 @@ def _expectation(sample: np.ndarray, moon_date: dt.date):
     )
 
 
-def window_extreme(
-    close: pd.Series, moon_date: dt.date, kind: str, max_lag: int
-) -> tuple[dt.date, float] | None:
-    """Highest (Top) or lowest (Bottom) CLOSE within +/-``max_lag`` of the moon.
+def extreme_column(frame: pd.DataFrame, kind: str) -> str:
+    """The column that defines the actual extreme for this phase.
 
-    Returns ``None`` only when the window is not fully covered by data - at the
-    very start or end of the series - because a truncated window biases the
-    result toward whichever side has bars.
+    HIGH for tops, LOW for bottoms; ``close`` only if the frame has no OHLC.
     """
-    lo = pd.Timestamp(moon_date) - pd.Timedelta(days=max_lag)
+    wanted = "high" if kind == "Top" else "low"
+    return wanted if wanted in frame.columns else "close"
+
+
+def window_extreme(
+    frame: pd.DataFrame, moon_date: dt.date, kind: str, max_lag: int,
+    window_mode: str = "symmetric",
+) -> tuple[dt.date, float, str] | None:
+    """The actual high (Top) or low (Bottom) in the window around the moon.
+
+    ``window_mode`` decides where the window sits - see ``WINDOW_MODES``. The
+    symmetric window spans nearly a full synodic month and can therefore return
+    an extreme that belongs to the previous cycle; the forward window cannot.
+
+    Returns ``(date, price, source_column)``, or ``None`` when the window is not
+    fully covered by data - at the very start or end of the series - because a
+    truncated window biases the result toward whichever side has bars.
+    """
+    lo = (pd.Timestamp(moon_date) - pd.Timedelta(days=max_lag)
+          if window_mode == "symmetric" else pd.Timestamp(moon_date))
     hi = pd.Timestamp(moon_date) + pd.Timedelta(days=max_lag)
-    if lo < close.index.min() or hi > close.index.max():
+    if lo < frame.index.min() or hi > frame.index.max():
         return None
-    window = close.loc[lo:hi]
-    if window.empty:
+    column = extreme_column(frame, kind)
+    series = frame.loc[lo:hi, column].astype(float)
+    if series.empty:
         return None
-    stamp = window.idxmax() if kind == "Top" else window.idxmin()
-    return stamp.date(), float(window.loc[stamp])
+    stamp = series.idxmax() if kind == "Top" else series.idxmin()
+    return stamp.date(), float(series.loc[stamp]), column
+
+
+def is_turning_point(frame: pd.DataFrame, day: dt.date, kind: str) -> bool | None:
+    """Is ``day`` a strict local extreme on intraday prices?
+
+    Uses the protocol's own strict 7-day rule (``pivots``), mirrored onto HIGH
+    for tops. Tested on the SAME price basis as the extreme itself - comparing
+    an intraday extreme against close-based pivots would put the two measures on
+    different definitions and understate real turns.
+
+    ``None`` means undecidable (missing bars), never ``False``.
+    """
+    column = "high" if kind == "Top" else "low"
+    if column not in frame.columns:
+        return None
+    try:
+        if kind == "Top":
+            return is_strict_local_high(frame, day)
+        return is_strict_local_low(frame, day)
+    except (KeyError, ValueError):
+        return None
 
 
 def _entries_for_phase(
     moons: list[dt.date],
     matched: pd.DataFrame,
-    close: pd.Series,
+    frame: pd.DataFrame,
     pivot_dates: set[dt.date],
     moon_type: str,
     kind: str,
     basis: str,
     max_lag: int,
+    window_mode: str,
 ) -> list[TrackRecordEntry]:
     """Score every moon of one phase on both measures."""
     by_moon: dict[dt.date, dict] = {}
@@ -178,12 +245,14 @@ def _entries_for_phase(
 
     # Pass 1: measure the extreme for every moon, in date order, so a
     # walk-forward mean can be accumulated from prior moons only.
-    extremes: dict[dt.date, tuple[dt.date, float, int]] = {}
+    extremes: dict[dt.date, tuple[dt.date, float, int, str]] = {}
     for moon_date in sorted(moons):
-        found = window_extreme(close, moon_date, kind, max_lag)
+        found = window_extreme(frame, moon_date, kind, max_lag, window_mode)
         if found:
-            ex_date, ex_close = found
-            extremes[moon_date] = (ex_date, ex_close, (ex_date - moon_date).days)
+            ex_date, ex_price, source = found
+            extremes[moon_date] = (
+                ex_date, ex_price, (ex_date - moon_date).days, source,
+            )
 
     ordered_ex = sorted(extremes.items(), key=lambda kv: kv[0])
     all_ex = np.array([v[2] for _, v in ordered_ex], dtype=float)
@@ -204,16 +273,22 @@ def _entries_for_phase(
         n_prior_ex = int(sample_ex.size)
         exp_ex_off, exp_ex_date, ex_lo, ex_hi = _expectation(sample_ex, moon_date)
 
-        ex_date = ex_close = ex_off = ex_err = ex_hit = is_tp = at_edge = None
+        ex_date = ex_price = ex_off = ex_err = ex_hit = is_tp = at_edge = None
+        ex_source = None
         if ex is None:
             notes.append(
                 f"window extends beyond the price history, so the +/-{max_lag} d "
                 "extreme would be biased"
             )
         else:
-            ex_date, ex_close, ex_off = ex
-            is_tp = ex_date in pivot_dates
-            at_edge = abs(ex_off) >= max_lag - 1
+            ex_date, ex_price, ex_off, ex_source = ex
+            is_tp = is_turning_point(frame, ex_date, kind)
+            if is_tp is None:
+                # Fall back to coincidence with the frozen close-based detector
+                # only when intraday bars cannot decide it.
+                is_tp = ex_date in pivot_dates if ex_source == "close" else None
+            at_edge = (abs(ex_off) >= max_lag - 1 if window_mode == "symmetric"
+                       else ex_off >= max_lag - 1)
             if at_edge:
                 notes.append(
                     "extreme sits on the window boundary - price trended through "
@@ -255,7 +330,8 @@ def _entries_for_phase(
                 moon_type=moon_type, kind=kind, moon_date=moon_date,
                 extreme_date=ex_date,
                 extreme_offset_days=ex_off,
-                extreme_close=round(ex_close, 2) if ex_close is not None else None,
+                extreme_price=round(ex_price, 2) if ex_price is not None else None,
+                extreme_source=ex_source,
                 extreme_is_turning_point=is_tp,
                 extreme_at_window_edge=at_edge,
                 expected_extreme_offset=exp_ex_off,
@@ -280,10 +356,21 @@ def build_track_record(
     basis: str = "walk_forward",
     today: dt.date | None = None,
     max_lag: int | None = None,
+    ohlc: pd.DataFrame | None = None,
+    window_mode: str = "symmetric",
 ) -> list[TrackRecordEntry]:
-    """Score every resolved historical moon in ``res`` on both measures."""
+    """Score every resolved historical moon in ``res`` on both measures.
+
+    ``ohlc`` should carry daily ``high``/``low`` columns so measure A finds the
+    ACTUAL intraday extreme. Without it the measurement falls back to close,
+    which can place the extreme on the wrong day; ``extreme_source`` on each
+    entry records which was used.
+    """
     if basis not in BASES:
         raise ValueError(f"basis must be one of {BASES}, got {basis!r}")
+    if window_mode not in WINDOW_MODES:
+        raise ValueError(
+            f"window_mode must be one of {WINDOW_MODES}, got {window_mode!r}")
     today = today or dt.date.today()
     if max_lag is None:
         max_lag = int(WEBSITE_METHODOLOGY["max_lag_days"])
@@ -291,16 +378,16 @@ def build_track_record(
     # A moon inside the lag window has not finished resolving; scoring it now
     # would record a result for a turn that may still be forming.
     cutoff = today - dt.timedelta(days=max_lag)
-    close = res.price["close"].astype(float)
+    frame = ohlc if ohlc is not None and not ohlc.empty else res.price
     highs = {_as_date(d) for d in res.swing_highs}
     lows = {_as_date(d) for d in res.swing_lows}
 
     entries = _entries_for_phase(
         [m for m in res.full_moons if m <= cutoff], res.top_matches,
-        close, highs, "Full", "Top", basis, max_lag,
+        frame, highs, "Full", "Top", basis, max_lag, window_mode,
     ) + _entries_for_phase(
         [m for m in res.new_moons if m <= cutoff], res.bottom_matches,
-        close, lows, "New", "Bottom", basis, max_lag,
+        frame, lows, "New", "Bottom", basis, max_lag, window_mode,
     )
     entries.sort(key=lambda e: e.moon_date)
     return entries
@@ -333,6 +420,7 @@ def track_record_summary(
         hits = [getattr(e, hit_attr) for e in scored
                 if getattr(e, hit_attr) is not None]
         turning = [e for e in subset if e.extreme_is_turning_point]
+        not_turning = [e for e in subset if e.extreme_is_turning_point is False]
         at_edge = [e for e in subset if e.extreme_at_window_edge]
         out[label] = {
             "measure": measure,
@@ -340,6 +428,7 @@ def track_record_summary(
             "n_scored": len(scored),
             "n_undecidable": len(subset) - len(scored),
             "n_extreme_was_turning_point": len(turning),
+            "n_extreme_not_a_turn": len(not_turning),
             "n_extreme_at_window_edge": len(at_edge),
             "mean_error_days": round(float(np.mean(errors)), 2) if errors.size else None,
             "mean_absolute_error_days": (
@@ -360,6 +449,8 @@ def placebo_baseline(
     n_trials: int = 1000,
     seed: int = 0,
     today: dt.date | None = None,
+    ohlc: pd.DataFrame | None = None,
+    window_mode: str = "symmetric",
 ) -> dict:
     """Does the Moon beat a random date at the same task?
 
@@ -380,21 +471,22 @@ def placebo_baseline(
     if max_lag is None:
         max_lag = int(WEBSITE_METHODOLOGY["max_lag_days"])
     today = today or dt.date.today()
-    close = res.price["close"].astype(float)
+    frame = ohlc if ohlc is not None and not ohlc.empty else res.price
     rng = np.random.default_rng(seed)
     cutoff = today - dt.timedelta(days=max_lag)
 
     eligible = [
-        d.date() for d in close.index
-        if (d - pd.Timedelta(days=max_lag)) >= close.index.min()
-        and (d + pd.Timedelta(days=max_lag)) <= close.index.max()
+        d.date() for d in frame.index
+        if (d - pd.Timedelta(days=max_lag if window_mode == "symmetric" else 0))
+        >= frame.index.min()
+        and (d + pd.Timedelta(days=max_lag)) <= frame.index.max()
         and d.date() <= cutoff
     ]
 
     def _offsets(dates: list[dt.date], kind: str) -> list[tuple[dt.date, int]]:
         out = []
         for d in dates:
-            found = window_extreme(close, d, kind, max_lag)
+            found = window_extreme(frame, d, kind, max_lag, window_mode)
             if found:
                 out.append((d, (found[0] - d).days))
         return out

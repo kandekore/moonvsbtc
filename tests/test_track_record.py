@@ -25,15 +25,21 @@ MAX_LAG = 14
 
 
 @pytest.fixture(scope="module")
-def analysis(request):
-    df = request.getfixturevalue("ohlc_df")
-    return legacy_analysis(price_df=df, start="2014-09-17")
+def ohlc(request):
+    return request.getfixturevalue("ohlc_df")
 
 
 @pytest.fixture(scope="module")
-def entries(analysis):
+def analysis(ohlc):
+    # The legacy engine is CLOSE-based; feed it closes only, exactly as the
+    # live app does, so the frozen path is unchanged by these tests.
+    return legacy_analysis(price_df=ohlc[["close"]].copy(), start="2014-09-17")
+
+
+@pytest.fixture(scope="module")
+def entries(analysis, ohlc):
     return build_track_record(analysis, basis="walk_forward", today=TODAY,
-                              max_lag=MAX_LAG)
+                              max_lag=MAX_LAG, ohlc=ohlc)
 
 
 # ---------------------------------------------------------------------------
@@ -56,16 +62,49 @@ def test_moons_without_a_pivot_are_still_measured(entries):
     assert all(e.extreme_offset_days is not None for e in measured)
 
 
-def test_extreme_is_the_true_window_extreme(analysis, entries):
-    """Spot-check the extreme against a direct pandas computation."""
-    close = analysis.price["close"].astype(float)
+def test_extreme_is_the_true_intraday_extreme(ohlc, entries):
+    """The extreme must be the highest HIGH / lowest LOW, not a close."""
     import pandas as pd
-    for e in [x for x in entries if x.extreme_date is not None][:40]:
+    for e in [x for x in entries if x.extreme_date is not None][:60]:
         lo = pd.Timestamp(e.moon_date) - pd.Timedelta(days=MAX_LAG)
         hi = pd.Timestamp(e.moon_date) + pd.Timedelta(days=MAX_LAG)
-        w = close.loc[lo:hi]
-        expected = w.max() if e.kind == "Top" else w.min()
-        assert e.extreme_close == pytest.approx(expected, abs=0.01)
+        w = ohlc.loc[lo:hi]
+        if e.kind == "Top":
+            assert e.extreme_source == "high"
+            assert e.extreme_price == pytest.approx(w["high"].max(), abs=0.01)
+            assert e.extreme_date == w["high"].idxmax().date()
+        else:
+            assert e.extreme_source == "low"
+            assert e.extreme_price == pytest.approx(w["low"].min(), abs=0.01)
+            assert e.extreme_date == w["low"].idxmin().date()
+
+
+def test_intraday_extreme_differs_from_close_based(analysis, ohlc):
+    """The whole point: a close can put the extreme on the wrong day."""
+    close_run = build_track_record(analysis, today=TODAY, max_lag=MAX_LAG)
+    intra_run = build_track_record(analysis, today=TODAY, max_lag=MAX_LAG, ohlc=ohlc)
+    assert {e.extreme_source for e in close_run if e.extreme_source} == {"close"}
+    by_date = {e.moon_date: e for e in close_run}
+    moved = [
+        e for e in intra_run
+        if e.extreme_offset_days is not None
+        and by_date[e.moon_date].extreme_offset_days != e.extreme_offset_days
+    ]
+    # Roughly half of all moons shift; assert it is substantial, not incidental.
+    assert len(moved) > len(intra_run) // 4
+
+
+def test_extreme_price_brackets_the_close(ohlc, entries):
+    """A high must be >= that day's close; a low must be <= it."""
+    for e in entries:
+        if e.extreme_date is None:
+            continue
+        import pandas as pd
+        bar = ohlc.loc[pd.Timestamp(e.extreme_date)]
+        if e.kind == "Top":
+            assert e.extreme_price >= float(bar["close"]) - 0.01
+        else:
+            assert e.extreme_price <= float(bar["close"]) + 0.01
 
 
 def test_extreme_offset_never_exceeds_the_lag(entries):
@@ -74,10 +113,18 @@ def test_extreme_offset_never_exceeds_the_lag(entries):
             assert abs(e.extreme_offset_days) <= MAX_LAG
 
 
-def test_window_extreme_returns_none_outside_coverage(analysis):
-    close = analysis.price["close"].astype(float)
-    first = close.index.min().date()
-    assert window_extreme(close, first, "Top", MAX_LAG) is None
+def test_window_extreme_returns_none_outside_coverage(ohlc):
+    first = ohlc.index.min().date()
+    assert window_extreme(ohlc, first, "Top", MAX_LAG) is None
+
+
+def test_extreme_column_falls_back_to_close(ohlc):
+    from btcmoon.research.track_record import extreme_column
+    assert extreme_column(ohlc, "Top") == "high"
+    assert extreme_column(ohlc, "Bottom") == "low"
+    closes = ohlc[["close"]]
+    assert extreme_column(closes, "Top") == "close"
+    assert extreme_column(closes, "Bottom") == "close"
 
 
 # ---------------------------------------------------------------------------
@@ -91,21 +138,42 @@ def test_boundary_extremes_are_flagged_as_trending(entries):
         assert "boundary" in e.note
 
 
-def test_turning_point_flag_matches_the_frozen_detector(analysis, entries):
-    highs = {d.date() for d in analysis.swing_highs}
-    lows = {d.date() for d in analysis.swing_lows}
+def test_turning_point_uses_the_strict_intraday_rule(ohlc, entries):
+    """Tested on the same price basis as the extreme, not against close pivots."""
+    from btcmoon.research.pivots import is_strict_local_high, is_strict_local_low
     for e in entries:
-        if e.extreme_date is None:
+        if e.extreme_date is None or e.extreme_is_turning_point is None:
             continue
-        expected = e.extreme_date in (highs if e.kind == "Top" else lows)
+        expected = (is_strict_local_high(ohlc, e.extreme_date) if e.kind == "Top"
+                    else is_strict_local_low(ohlc, e.extreme_date))
         assert e.extreme_is_turning_point is expected
 
 
-def test_most_extremes_are_not_significant_pivots(entries):
-    """Significance is rare; that is a property of the detector, not a bug."""
-    measured = [e for e in entries if e.extreme_date is not None]
-    turns = [e for e in measured if e.extreme_is_turning_point]
-    assert 0 < len(turns) < len(measured) / 2
+def test_a_turn_is_strictly_beyond_its_neighbours(ohlc, entries):
+    """Verify the rule directly on the bars, not via the helper."""
+    import pandas as pd
+    checked = 0
+    for e in entries:
+        if not e.extreme_is_turning_point:
+            continue
+        pos = ohlc.index.get_loc(pd.Timestamp(e.extreme_date))
+        if pos < 3 or pos + 3 >= len(ohlc):
+            continue
+        col = "high" if e.kind == "Top" else "low"
+        value = float(ohlc.iloc[pos][col])
+        neighbours = [float(ohlc.iloc[pos + k][col])
+                      for k in range(-3, 4) if k != 0]
+        assert all(value > n for n in neighbours) if e.kind == "Top" \
+            else all(value < n for n in neighbours)
+        checked += 1
+    assert checked > 50
+
+
+def test_both_turns_and_non_turns_are_present(entries):
+    """The flag must discriminate, not label everything the same way."""
+    turns = [e for e in entries if e.extreme_is_turning_point is True]
+    flat = [e for e in entries if e.extreme_is_turning_point is False]
+    assert len(turns) > 50 and len(flat) > 20
 
 
 # ---------------------------------------------------------------------------
@@ -146,16 +214,50 @@ def test_walk_forward_never_uses_future_observations(entries):
             seen[e.kind] = n + 1
 
 
-def test_open_moons_are_excluded(analysis):
-    got = build_track_record(analysis, today=TODAY, max_lag=MAX_LAG)
+def test_open_moons_are_excluded(analysis, ohlc):
+    got = build_track_record(analysis, today=TODAY, max_lag=MAX_LAG, ohlc=ohlc)
     assert all(e.moon_date <= TODAY - dt.timedelta(days=MAX_LAG) for e in got)
 
 
-def test_rejects_unknown_basis_and_measure(analysis, entries):
+def test_rejects_unknown_basis_measure_and_window(analysis, entries):
     with pytest.raises(ValueError, match="basis must be one of"):
         build_track_record(analysis, basis="hindsight", today=TODAY)
     with pytest.raises(ValueError, match="measure must be one of"):
         track_record_summary(entries, measure="vibes")
+    with pytest.raises(ValueError, match="window_mode must be one of"):
+        build_track_record(analysis, today=TODAY, window_mode="sideways")
+
+
+# ---------------------------------------------------------------------------
+# Symmetric vs forward search window
+# ---------------------------------------------------------------------------
+def test_forward_window_never_looks_back(analysis, ohlc):
+    fwd = build_track_record(analysis, today=TODAY, max_lag=MAX_LAG, ohlc=ohlc,
+                             window_mode="forward")
+    for e in fwd:
+        if e.extreme_offset_days is not None:
+            assert 0 <= e.extreme_offset_days <= MAX_LAG
+
+
+def test_symmetric_window_can_borrow_from_the_previous_cycle(analysis, ohlc):
+    """The 12 Aug 2026 New Moon is the worked example of the failure mode."""
+    sym = {e.moon_date: e for e in build_track_record(
+        analysis, today=TODAY, max_lag=MAX_LAG, ohlc=ohlc, window_mode="symmetric")}
+    fwd = {e.moon_date: e for e in build_track_record(
+        analysis, today=TODAY, max_lag=MAX_LAG, ohlc=ohlc, window_mode="forward")}
+    moon = dt.date(2026, 8, 12)
+    assert sym[moon].extreme_offset_days == -9      # belongs to the prior phase
+    assert fwd[moon].extreme_offset_days == 2       # matches the T0:T+3 protocol
+
+
+def test_forward_window_lowers_mean_absolute_error(analysis, ohlc):
+    """Not a tuning knob - it removes extremes credited to the wrong cycle."""
+    def mae(mode):
+        entries = build_track_record(analysis, today=TODAY, max_lag=MAX_LAG,
+                                      ohlc=ohlc, window_mode=mode)
+        return track_record_summary(entries)["new_moon_to_low"][
+            "mean_absolute_error_days"]
+    assert mae("forward") < mae("symmetric")
 
 
 # ---------------------------------------------------------------------------
@@ -180,9 +282,9 @@ def test_extreme_measure_scores_far_more_than_pivot(entries):
     assert ex["n_scored"] > 3 * pv["n_scored"]
 
 
-def test_placebo_uses_the_same_window_for_real_and_random(analysis):
+def test_placebo_uses_the_same_window_for_real_and_random(analysis, ohlc):
     base = placebo_baseline(analysis, max_lag=MAX_LAG, n_trials=500, seed=0,
-                            today=TODAY)
+                            today=TODAY, ohlc=ohlc)
     for key in ("full_moon_to_high", "new_moon_to_low"):
         b = base[key]
         assert b["window_days"] is not None
@@ -194,10 +296,9 @@ def test_placebo_uses_the_same_window_for_real_and_random(analysis):
         assert b["edge_se_pct"] > 0
 
 
-def test_placebo_is_deterministic_for_a_seed(analysis):
-    a = placebo_baseline(analysis, max_lag=MAX_LAG, n_trials=300, seed=7, today=TODAY)
-    c = placebo_baseline(analysis, max_lag=MAX_LAG, n_trials=300, seed=7, today=TODAY)
-    assert a == c
+def test_placebo_is_deterministic_for_a_seed(analysis, ohlc):
+    kw = dict(max_lag=MAX_LAG, n_trials=300, seed=7, today=TODAY, ohlc=ohlc)
+    assert placebo_baseline(analysis, **kw) == placebo_baseline(analysis, **kw)
 
 
 def test_frame_is_newest_first(entries):

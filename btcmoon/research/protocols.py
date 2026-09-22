@@ -157,7 +157,77 @@ SEPTEMBER_2026_PROTOCOL = {
     },
 }
 
-ALL_PROTOCOLS = (WEBSITE_METHODOLOGY_PROTOCOL, SEPTEMBER_2026_PROTOCOL)
+# ---------------------------------------------------------------------------
+# Protocol 3 - exact intraday lunar offset. NEW, PROSPECTIVE, QUARANTINED.
+#
+# This is a separate protocol, not a new version of website-methodology-v1. It
+# measures a different quantity (elapsed hours, not calendar days) and its
+# results are never merged with, or substituted for, the legacy figures.
+# ---------------------------------------------------------------------------
+INTRADAY_OFFSET_PROTOCOL = {
+    "slug": "intraday-lunar-offset-v1",
+    "version": "1.0",
+    "title": "Exact intraday lunar offset (hours from syzygy to pivot)",
+    "summary": (
+        "Measures the interval from the exact UTC instant of a Full or New Moon "
+        "to the exact UTC timestamp of the corresponding BTC pivot, in hours. "
+        "Collected prospectively from 2026-09-22. It does NOT reinterpret, "
+        "replace or recompute the legacy calendar-day methodology or its "
+        "published +4.4 d / +3.2 d / 71% figures."
+    ),
+    "window_start": "2026-09-22T00:00:00",
+    "rules": {
+        "measured_quantity": "pivot_instant_utc - syzygy_instant_utc",
+        "units": "hours (fractional days reported for readability only)",
+        "moon_instant_source": (
+            "PyEphem next_full_moon / next_new_moon, exact UTC instant. NOT "
+            "reduced to a calendar date - that reduction is what this metric "
+            "exists to avoid."
+        ),
+        "price_basis": (
+            "Intraday bars, hourly or finer. Pivot = highest HIGH (Full Moon) or "
+            "lowest LOW (New Moon) in the window. Closing prices are not used."
+        ),
+        "window": "T0 to T0+14 days, forward only (no look-back into the prior phase).",
+        "minimum_bar_resolution": "60 minutes; daily bars are rejected outright.",
+        "effective_from": "2026-09-22",
+        "earliest_reliable_hourly_data": "2024-09-01",
+        "back_fitting": (
+            "FORBIDDEN. This metric is never applied to the historical sample "
+            "that produced the published calendar-day statistics. Hourly history "
+            "does not reach far enough back, and re-specifying the measurement "
+            "that generated a published claim would invalidate the claim rather "
+            "than refine it."
+        ),
+        "relationship_to_legacy": {
+            "website-methodology-v1": (
+                "Untouched. Its +4.4 d recent mean, +3.2 d 2017-2026 mean, 71% "
+                "after-full-moon share and 6.0 d median remain the reproduced "
+                "figures of the historical calendar-day sample."
+            ),
+            "comparability": (
+                "NONE at the value level. A fractional-hour offset and an integer "
+                "calendar-day lag are different measurements. They may be "
+                "reported side by side; they must never be averaged, differenced "
+                "or presented as the same series."
+            ),
+        },
+        "worked_example": {
+            "event": "Full Moon 2026-08-28 04:18:26 UTC",
+            "calendar_day_result": "FM+6 (high printed during 3 September 2026)",
+            "intraday_result": (
+                "Not measured - precedes effective_from, and is recorded under "
+                "the legacy calendar-day methodology only."
+            ),
+        },
+    },
+}
+
+ALL_PROTOCOLS = (
+    WEBSITE_METHODOLOGY_PROTOCOL,
+    SEPTEMBER_2026_PROTOCOL,
+    INTRADAY_OFFSET_PROTOCOL,
+)
 
 
 def seed_protocols(session, freeze: bool = True) -> list[ResearchProtocol]:
