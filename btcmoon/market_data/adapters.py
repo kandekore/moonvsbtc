@@ -27,7 +27,17 @@ class MarketError(RuntimeError):
 
 
 def _cache_path(symbol: str) -> pathlib.Path:
-    CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    """Where this symbol is cached. Never raises.
+
+    CACHE_DIR is relative by default, so it resolves against the process's
+    working directory - which for a service is not necessarily the app root. If
+    it cannot be created, caching is simply unavailable; that must not stop a
+    live fetch from succeeding.
+    """
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        pass
     return CACHE_DIR / f"{symbol.replace('/', '_')}_daily.csv"
 
 
@@ -90,10 +100,25 @@ def get_ohlc_history(
         df = raw.copy()
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [c[0] for c in df.columns]
-        df = df[["Open", "High", "Low", "Close", "Volume"]].rename(columns=str.lower)
+        df.columns = [str(c).lower() for c in df.columns]
+        required = ["high", "low", "close"]
+        missing = [c for c in required if c not in df.columns]
+        if missing:
+            raise MarketError(
+                f"{symbol} response lacks {missing}; got {sorted(df.columns)}"
+            )
+        # Volume and open are kept when present but are NOT required - insisting
+        # on them made this fail where the close-only fetch succeeded.
+        keep = [c for c in ("open", "high", "low", "close", "volume")
+                if c in df.columns]
+        df = df[keep]
         df.index = pd.to_datetime(df.index).tz_localize(None).normalize()
-        df = df[~df.index.duplicated(keep="last")].sort_index().dropna()
-        df.to_csv(path)
+        df = df[~df.index.duplicated(keep="last")].sort_index()
+        df = df.dropna(subset=required)
+        try:
+            df.to_csv(path)
+        except OSError:
+            pass                       # cache unavailable; the data is still good
         return df
     except Exception as exc:
         if path.exists():

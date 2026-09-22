@@ -69,22 +69,58 @@ def load_price(start: str) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60 * 60, show_spinner="Downloading intraday highs and lows…")
-def load_ohlc(start: str) -> pd.DataFrame | None:
+def load_ohlc(start: str) -> tuple[pd.DataFrame | None, str]:
     """Daily OHLC, for finding the ACTUAL high or low rather than the closing one.
 
     A close can miss a spike: the lowest price traded in a window often falls on
-    a different day from the lowest close. Returns ``None`` if unavailable, and
-    the track record then says so rather than quietly reverting to closes.
+    a different day from the lowest close.
+
+    Returns ``(frame, reason)``. On failure the frame is None and ``reason``
+    carries the real error - swallowing it, as an earlier version did, left the
+    banner saying "unavailable" with no way to find out why.
+
+    Two sources are tried, because they fail independently: the cached adapter,
+    then a direct download shaped like the close-only fetch that is already
+    known to work here.
     """
+    reasons = []
     try:
         from btcmoon.market_data import get_ohlc_history
 
         df = get_ohlc_history(start=start)
-        if df is None or df.empty or not {"high", "low"} <= set(df.columns):
-            return None
-        return df
-    except Exception:
-        return None
+        if df is not None and not df.empty and {"high", "low"} <= set(df.columns):
+            return df, ""
+        reasons.append(
+            f"adapter returned {0 if df is None else len(df)} rows with columns "
+            f"{sorted(df.columns) if df is not None else 'n/a'}"
+        )
+    except Exception as exc:
+        reasons.append(f"adapter: {type(exc).__name__}: {exc}")
+
+    # Fallback: same call shape as the close-only fetch, keeping high/low.
+    try:
+        import yfinance as yf
+
+        raw = yf.download(
+            "BTC-USD", start=start,
+            end=(_dt.date.today() + _dt.timedelta(days=1)).isoformat(),
+            progress=False, auto_adjust=True,
+        )
+        if raw is None or raw.empty:
+            raise ValueError("empty response")
+        if isinstance(raw.columns, pd.MultiIndex):
+            raw.columns = [c[0] for c in raw.columns]
+        raw.columns = [str(c).lower() for c in raw.columns]
+        if not {"high", "low", "close"} <= set(raw.columns):
+            raise ValueError(f"no high/low in {sorted(raw.columns)}")
+        df = raw[["high", "low", "close"]].astype(float)
+        df.index = pd.to_datetime(df.index).tz_localize(None).normalize()
+        df = df[~df.index.duplicated(keep="last")].sort_index().dropna()
+        return df, ""
+    except Exception as exc:
+        reasons.append(f"direct: {type(exc).__name__}: {exc}")
+
+    return None, " | ".join(reasons)
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +167,7 @@ st.sidebar.caption(
 # Run analysis (always on FULL history — the view range only zooms the chart)
 # ---------------------------------------------------------------------------
 price = load_price(start)
-ohlc = load_ohlc(start)
+ohlc, ohlc_error = load_ohlc(start)
 res = me.run_analysis(
     distance=distance,
     prominence_pct=prominence_pct,
@@ -425,10 +461,22 @@ with tab_record:
                 "**Intraday highs and lows are unavailable, so these extremes were "
                 "found on CLOSING prices.** A close can miss a spike entirely — the "
                 "lowest price traded in a window often falls on a different day from "
-                "the lowest close. Treat the dates below as approximate until OHLC "
-                "data returns.",
+                "the lowest close. Treat the dates below as approximate.",
                 icon="⚠️",
             )
+            with st.expander("Why — and how to fix it", expanded=True):
+                st.code(ohlc_error or "no reason recorded", language="text")
+                st.markdown(
+                    "`.cache/` is git-ignored, so a fresh deployment has no OHLC "
+                    "cache and must fetch live. Check outbound HTTPS and that the "
+                    "working directory is writable:\n\n"
+                    "```bash\n"
+                    "cd ~/moonvsbtc\n"
+                    ".venv/bin/python -c \"from btcmoon.market_data import "
+                    "get_ohlc_history as g; d=g(); print(d.shape, list(d.columns))\"\n"
+                    "ls -la .cache/\n"
+                    "```"
+                )
         else:
             st.caption(
                 "Extremes are the **actual intraday high (tops) / low (bottoms)** — "
