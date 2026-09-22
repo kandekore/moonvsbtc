@@ -68,7 +68,7 @@
     <button class="btn" name="action" value="save" type="submit">Save draft</button>
     {% if item.status != 'published' %}
       <button class="btn btn-ghost" name="action" value="publish" type="submit"
-        onclick="return confirm('Publish this to the public site?{% if item.__class__.__name__ == \'Prediction\' %} A published prediction becomes permanently immutable.{% endif %}')">Publish</button>
+        onclick="return confirm('Publish this to the public site?{% if kind == 'predictions' %} A published prediction becomes permanently immutable.{% endif %}')">Publish</button>
     {% else %}
       <button class="btn btn-ghost" name="action" value="unpublish" type="submit">Withdraw from site</button>
     {% endif %}

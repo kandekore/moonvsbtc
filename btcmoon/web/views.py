@@ -9,6 +9,7 @@ import datetime as dt
 import json
 
 from flask import Blueprint, abort, render_template, request
+from sqlalchemy import func
 
 from ..astrology import NATAL_CHART_ASSUMPTIONS, natal_chart, transit_calendar
 from ..auth.decorators import entitlement_required
@@ -281,8 +282,12 @@ def news():
     if category in NewsCategory.ALL:
         query = query.filter(NewsItem.category == category)
     items = (
-        query.order_by(NewsItem.relevance_score.desc(),
-                       NewsItem.source_published_at.desc())
+        query.order_by(
+            # Newest first. Not every feed dates its entries, so fall back to
+            # when we fetched it - otherwise undated items sink to the bottom.
+            func.coalesce(NewsItem.source_published_at, NewsItem.retrieved_at).desc(),
+            NewsItem.relevance_score.desc(),
+        )
         .limit(60).all()
     )
     return render_template(
