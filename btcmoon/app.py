@@ -107,6 +107,7 @@ def _register_context(app: Flask) -> None:
             "SITE_URL": Config.SITE_URL,
             "SITE_TAGLINE": Config.SITE_TAGLINE,
             "EDITOR_NAME": Config.EDITOR_NAME,
+            "EXPLORER_URL": Config.EXPLORER_URL,
             "PAYWALL_ENABLED": Config.PAYWALL_ENABLED,
             "FREE_UNTIL": free_until,
             "IS_FREE_PERIOD": dt.date.today() <= free_until,

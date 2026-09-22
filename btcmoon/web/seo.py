@@ -73,6 +73,17 @@ def robots():
         "# Private research laboratory and account pages - never indexed.",
         "Disallow: /admin/",
         "Disallow: /account/",
+    ]
+    if Config.EXPLORER_URL.startswith("/"):
+        # The explorer recomputes the whole analysis per request. It is linked
+        # from the nav for humans, but a crawler working through it would cost
+        # far more than it is worth, and it has no indexable content.
+        lines += [
+            "",
+            "# Interactive tool - recomputed per request, nothing to index.",
+            f"Disallow: {Config.EXPLORER_URL}",
+        ]
+    lines += [
         "",
         f"Sitemap: {Config.SITE_URL}/sitemap.xml",
         "",

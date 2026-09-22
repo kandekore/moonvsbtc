@@ -72,6 +72,9 @@ p { margin: 0 0 1em; }
 .site-nav a { color: var(--ink-dim); }
 .site-nav a:hover { color: var(--gold); text-decoration: none; }
 .site-nav .nav-admin { color: var(--purple); font-weight: 600; }
+/* External interactive tool, not a site page - marked so it reads as a detour. */
+.site-nav .nav-tool { color: var(--blue); }
+.site-nav .nav-tool::after { content: " \2197"; font-size: .85em; opacity: .7; }
 
 .experiment-banner {
   background: linear-gradient(90deg, rgba(255,213,74,.09), rgba(90,155,255,.09));

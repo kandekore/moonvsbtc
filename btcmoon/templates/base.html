@@ -41,6 +41,10 @@
       <a href="{{ url_for('public.outlooks') }}">Outlooks</a>
       <a href="{{ url_for('public.methodology') }}">Methodology</a>
       <a href="{{ url_for('public.news') }}">News</a>
+      {% if EXPLORER_URL %}
+        <a class="nav-tool" href="{{ EXPLORER_URL }}"
+           title="Interactive pivot explorer: chart, track record and upcoming windows">Explorer</a>
+      {% endif %}
       <a href="{{ url_for('public.about') }}">About</a>
       {% if current_user.is_authenticated and current_user.is_admin %}
         <a class="nav-admin" href="{{ url_for('admin.dashboard') }}">Lab</a>

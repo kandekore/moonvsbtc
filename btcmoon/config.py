@@ -55,6 +55,9 @@ class Config:
         "A public longitudinal experiment: can lunar cycles tell us anything useful about Bitcoin?",
     )
     EDITOR_NAME = os.getenv("EDITOR_NAME", "Darren Kandekore")
+    #: The interactive Streamlit pivot explorer (app.py), proxied alongside the
+    #: site. Set to an empty string to drop it from the navigation entirely.
+    EXPLORER_URL = os.getenv("EXPLORER_URL", "/app/").strip()
     TIMEZONE = os.getenv("TIMEZONE", "Europe/London")
 
     # --- entitlements -------------------------------------------------------
