@@ -40,6 +40,11 @@ openai>=1.40
 # --- config ------------------------------------------------------------
 python-dotenv>=1.0
 
+# --- WSGI server -------------------------------------------------------
+# Needed when running under systemd behind LiteSpeed (deploy/moonvsbtc.service).
+# Harmless if you deploy under Passenger/LSAPI instead, which supplies its own.
+gunicorn>=21.2
+
 # --- optional: the legacy Streamlit research dashboard ------------------
 # Not needed by the public site or by any cron job. Install separately if you
 # want the interactive pivot-explorer:

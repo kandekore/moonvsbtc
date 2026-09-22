@@ -1,38 +1,58 @@
-# systemd unit for running the BTC-vs-Moon Streamlit app as a service.
+# systemd unit: Bitcoin vs The Moon (Flask/gunicorn) on a cPanel server.
 #
-# Install:
-#   sudo cp deploy/moonvsbtc.service /etc/systemd/system/moonvsbtc.service
-#   # edit User/WorkingDirectory/ExecStart paths below to match your server
-#   sudo systemctl daemon-reload
-#   sudo systemctl enable --now moonvsbtc
-#   sudo systemctl status moonvsbtc
+# Runs the app as your cPanel user on 127.0.0.1:8000. LiteSpeed proxies to it
+# (see deploy/litespeed-cpanel-proxy.conf). Nothing is exposed directly.
 #
-# Assumes the repo is cloned to /opt/moonvsbtc with a venv at /opt/moonvsbtc/.venv
-# (python3 -m venv .venv && .venv/bin/pip install -r requirements.txt).
+#   >>> REPLACE CPUSER everywhere below with your cPanel username <<<
+#
+# Install (as root):
+#   sed -i 's/CPUSER/youruser/g' deploy/moonvsbtc.service
+#   cp deploy/moonvsbtc.service /etc/systemd/system/moonvsbtc.service
+#   systemctl daemon-reload
+#   systemctl enable --now moonvsbtc
+#   systemctl status moonvsbtc
+#
+# After any code or .env change:
+#   systemctl restart moonvsbtc
+#
+# Logs:
+#   journalctl -u moonvsbtc -n 100 --no-pager
+#   journalctl -u moonvsbtc -f
 
 [Unit]
-Description=BTC vs Moon Streamlit dashboard
-After=network-online.target
+Description=Bitcoin vs The Moon (Flask)
+After=network-online.target mysql.service
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=www-data
-Group=www-data
-WorkingDirectory=/opt/moonvsbtc
-ExecStart=/opt/moonvsbtc/.venv/bin/streamlit run app.py \
-    --server.port=8501 \
-    --server.address=127.0.0.1 \
-    --server.headless=true \
-    --server.baseUrlPath=app
+User=CPUSER
+Group=CPUSER
+WorkingDirectory=/home/CPUSER/moonvsbtc
+
+# python-dotenv reads .env from the working directory, so no EnvironmentFile
+# is needed. Keep .env at chmod 600.
+ExecStart=/home/CPUSER/moonvsbtc/.venv/bin/gunicorn \
+    --workers 3 \
+    --bind 127.0.0.1:8000 \
+    --timeout 60 \
+    --graceful-timeout 30 \
+    --access-logfile /home/CPUSER/logs/btcmoon-access.log \
+    --error-logfile /home/CPUSER/logs/btcmoon-error.log \
+    --capture-output \
+    wsgi:application
+
+ExecReload=/bin/kill -s HUP $MAINPID
 Restart=on-failure
 RestartSec=5
 
-# Hardening (optional but recommended)
+# Hardening. NOTE: ProtectHome is deliberately NOT set - the application lives
+# under /home and needs to read its own code, .env and cache directory.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=full
-ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
 
 [Install]
 WantedBy=multi-user.target
