@@ -22,13 +22,18 @@ from ..models import (
     ResearchProtocol, Result, Status, Visibility, utcnow,
 )
 from ..news import top_stories
+from .reconcile import Discrepancy, reconcile, render_for_prompt
 
 #: How much history to send back to the model.
 MAX_HISTORY_TURNS = 12
 
 
-def build_context(session, limit_news: int = 8) -> dict:
-    """Retrieve everything relevant before the model is asked anything."""
+def build_context(session, limit_news: int = 8, lunar=None) -> dict:
+    """Retrieve everything relevant before the model is asked anything.
+
+    ``lunar`` may be supplied by a caller that already computed it, so the
+    ephemeris work is not repeated.
+    """
     ctx: dict = {"as_of": utcnow().isoformat()}
 
     try:
@@ -36,7 +41,8 @@ def build_context(session, limit_news: int = 8) -> dict:
     except Exception as exc:
         ctx["market"] = {"error": f"market data unavailable: {exc}"}
 
-    ctx["lunar"] = lunar_context().to_dict()
+    lunar = lunar or lunar_context()
+    ctx["lunar"] = lunar.to_dict()
     ctx["natal"] = natal_context()
 
     ctx["active_experiments"] = [
@@ -131,25 +137,47 @@ def ask(session, conversation: Conversation, user_text: str) -> Message:
         conversation.title = user_text.strip()[:120] or "New research thread"
     session.flush()
 
-    ctx = build_context(session)
+    lunar = lunar_context()
+    ctx = build_context(session, lunar=lunar)
+
+    # Check the Editor's own turn against the ephemeris BEFORE the model sees it.
+    # A contradiction found here is arithmetic, not judgement, so it is stated to
+    # the model as fact rather than left for it to notice.
+    discrepancies = reconcile(user_text, lunar)
+    ctx["discrepancies"] = [d.to_dict() for d in discrepancies]
+
     history = conversation.messages[-MAX_HISTORY_TURNS:]
     transcript = "\n\n".join(
         f"{m.role.upper()}: {m.content}" for m in history if m.role in ("user", "assistant")
     )
 
+    prompt = f"{_render_context(ctx)}"
+    if discrepancies:
+        prompt += "\n\n---\n\n" + render_for_prompt(discrepancies)
+    prompt += f"\n\n---\n\nCONVERSATION SO FAR:\n{transcript}"
+
     client = AiClient(session)
     resp = client.complete(
         task="companion_chat",
         system=COMPANION_SYSTEM,
-        user=f"{_render_context(ctx)}\n\n---\n\nCONVERSATION SO FAR:\n{transcript}",
+        user=prompt,
         conversation_id=conversation.id,
     )
 
     if resp.ok:
         content = resp.text
     else:
+        preamble = ""
+        if discrepancies:
+            preamble = (
+                "**Check this first.** The following was computed from the ephemeris "
+                "without any AI call:\n\n"
+                + "\n".join(f"- {d.question}" for d in discrepancies)
+                + "\n\n---\n\n"
+            )
         content = (
-            "**The AI Companion is not available right now.**\n\n"
+            preamble
+            + "**The AI Companion is not available right now.**\n\n"
             f"{resp.fallback_reason}\n\n"
             "The retrieved research context below is still accurate and was gathered "
             "without any AI call:\n\n```json\n"

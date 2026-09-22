@@ -20,9 +20,9 @@ from ..ai import (
 from ..auth.decorators import admin_required
 from ..db import Session
 from ..editorial import (
-    EditorialError, append_outlook_review, archive, create_hypothesis,
-    create_observation, create_prediction, draft_article, publish,
-    record_result, unpublish,
+    EditorialError, append_outlook_review, archive, create_experiment,
+    create_hypothesis, create_observation, create_prediction, draft_article,
+    publish, record_result, unpublish,
 )
 from ..models import (
     AiUsage, AppSetting, Article, Conversation, Experiment, ExperimentStatus,
@@ -32,6 +32,7 @@ from ..models import (
 )
 from ..news import ingest_all
 from . import companion as comp
+from .proposals import extract_proposals, strip_proposal_blocks
 
 bp = Blueprint("admin", __name__)
 
@@ -102,9 +103,19 @@ def companion(conversation_id: int | None = None):
             s.commit()
             return redirect(url_for("admin.companion", conversation_id=convo.id))
 
+    # The newest assistant turn may carry drafted records; render them as
+    # one-click cards instead of making the Editor retype them.
+    proposals = []
+    if convo:
+        for msg in reversed(convo.messages):
+            if msg.role == "assistant":
+                proposals = extract_proposals(msg.content)
+                break
+
     return render_template(
         "admin/companion.html", title="Companion", noindex=True,
-        conversation=convo,
+        conversation=convo, proposals=proposals,
+        strip_proposals=strip_proposal_blocks,
         conversations=s.query(Conversation)
         .filter_by(user_id=current_user.id, is_archived=False)
         .order_by(desc(Conversation.last_message_at)).limit(30).all(),
@@ -158,10 +169,24 @@ def promote(conversation_id: int):
                 evidence_snapshot=comp.build_context(s),
             )
             where = "predictions"
+        elif action == "experiment":
+            ctx = comp.build_context(s)
+            obj = create_experiment(
+                s, title=title, summary=request.form.get("summary") or body[:1000],
+                hypothesis_text=request.form.get("rationale") or "",
+                prediction_text=body,
+                test_criteria=request.form.get("test_criteria") or "",
+                invalidation_criteria=request.form.get("invalidation_criteria") or "",
+                confidence=request.form.get("confidence") or "",
+                conversation_id=convo.id,
+                moon_context=ctx.get("lunar"), btc_snapshot=ctx.get("market"),
+                natal_context=ctx.get("natal"),
+            )
+            where = "experiments"
         elif action == "article":
             obj = draft_article(
                 s, title=title, body_markdown=body, conversation_id=convo.id,
-                summary=(body or "")[:300],
+                summary=request.form.get("summary") or (body or "")[:300],
             )
             where = "articles"
         elif action == "archive":

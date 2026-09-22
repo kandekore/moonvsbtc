@@ -129,6 +129,7 @@ class Experiment(Base, TimestampMixin):
     )
     published_at: Mapped[dt.datetime | None] = mapped_column(DateTime, index=True)
     result_recorded_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    conversation_id: Mapped[int | None] = mapped_column(Integer)  # origin, if promoted from chat
 
     protocol: Mapped[ResearchProtocol | None] = relationship(back_populates="experiments")
     observations: Mapped[list["Observation"]] = relationship(back_populates="experiment")

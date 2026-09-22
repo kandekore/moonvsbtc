@@ -10,8 +10,9 @@ import datetime as dt
 import json
 
 from ..models import (
-    Article, Experiment, Hypothesis, ImmutableAfterPublishError, Observation,
-    Outlook, Prediction, Provenance, Result, Status, Visibility, utcnow,
+    Article, Experiment, ExperimentStatus, Hypothesis, ImmutableAfterPublishError,
+    Observation, Outcome, Outlook, Prediction, Provenance, Result, Status,
+    Visibility, utcnow,
 )
 from .slugs import unique_slug
 
@@ -104,6 +105,51 @@ def create_hypothesis(
     session.add(hyp)
     session.flush()
     return hyp
+
+
+def create_experiment(
+    session, *, title: str, summary: str = "", hypothesis_text: str = "",
+    prediction_text: str = "", test_criteria: str = "",
+    invalidation_criteria: str = "", confidence: str = "", ref: str = "",
+    protocol_id: int | None = None, conversation_id: int | None = None,
+    starts_at: dt.datetime | None = None, ends_at: dt.datetime | None = None,
+    moon_context: dict | None = None, btc_snapshot: dict | None = None,
+    natal_context: dict | None = None,
+    provenance: str = Provenance.CONTEMPORANEOUS_CHAT,
+) -> Experiment:
+    """Create an experiment as a PLANNED DRAFT.
+
+    Context is frozen here, at creation, for the same reason a prediction's
+    evidence snapshot is: "what we knew when we set this up" must not be
+    contaminated by anything learned afterwards.
+    """
+    exp = Experiment(
+        slug=unique_slug(session, Experiment, title),
+        ref=ref.strip(),
+        title=title.strip(),
+        summary=summary,
+        hypothesis_text=hypothesis_text,
+        prediction_text=prediction_text,
+        test_criteria=test_criteria,
+        invalidation_criteria=invalidation_criteria,
+        confidence=confidence,
+        protocol_id=protocol_id,
+        conversation_id=conversation_id,
+        observed_at=utcnow(),
+        starts_at=starts_at,
+        ends_at=ends_at,
+        moon_context_json=json.dumps(moon_context or {}, default=str),
+        btc_snapshot_json=json.dumps(btc_snapshot or {}, default=str),
+        natal_context_json=json.dumps(natal_context or {}, default=str),
+        experiment_status=ExperimentStatus.PLANNED,
+        outcome=Outcome.PENDING,
+        provenance=provenance,
+        status=Status.DRAFT,
+        visibility=Visibility.PRIVATE,
+    )
+    session.add(exp)
+    session.flush()
+    return exp
 
 
 def create_prediction(

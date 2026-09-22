@@ -95,6 +95,8 @@ main { padding: 32px 16px 64px; }
 .label-result           { color: var(--green);  border-color: rgba(78,203,141,.45);  background: rgba(78,203,141,.10); }
 .label-research_update  { color: var(--ink-dim);border-color: var(--border);         background: rgba(255,255,255,.04); }
 .label-experimental     { color: var(--amber);  border-color: rgba(255,169,77,.45);  background: rgba(255,169,77,.10); }
+.label-experiment       { color: var(--green);  border-color: rgba(78,203,141,.45);  background: rgba(78,203,141,.10); }
+.label-article          { color: var(--ink-dim);border-color: var(--border);         background: rgba(255,255,255,.04); }
 
 .outcome {
   display: inline-block; font-size: .78rem; font-weight: 600;

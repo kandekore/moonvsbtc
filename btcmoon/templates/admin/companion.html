@@ -36,8 +36,69 @@
         {% for m in conversation.messages %}
           <div class="msg msg-{{ m.role }}">
             <div class="msg-role">{{ 'You' if m.role == 'user' else 'Researcher' }}{% if m.model %} &middot; {{ m.model }}{% endif %}</div>
-            <div class="prose">{{ m.content|markdown|safe }}</div>
+            <div class="prose">{{ (strip_proposals(m.content) if m.role == 'assistant' else m.content)|markdown|safe }}</div>
           </div>
+        {% endfor %}
+      </div>
+    {% endif %}
+
+    {% if proposals %}
+      <div class="card" style="border-left:3px solid var(--gold)">
+        <h3 style="margin-top:0">Drafted records &mdash; one click to create</h3>
+        <p class="faint">
+          The Companion drafted {{ proposals|length }} record{{ 's' if proposals|length != 1 }} from
+          this exchange. Creating one writes a DRAFT you can edit and publish;
+          nothing becomes public here.
+        </p>
+
+        {% for p in proposals %}
+          <form method="post" action="{{ url_for('admin.promote', conversation_id=conversation.id) }}"
+                style="border-top:1px solid var(--rule);padding-top:14px;margin-top:14px">
+            {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
+
+            <span class="label label-{{ p.kind }}">{{ p.kind }}</span>
+            {% for w in p.warnings %}
+              <span class="label label-experimental" title="{{ w }}">needs attention</span>
+            {% endfor %}
+
+            <label for="t{{ p.index }}">Title</label>
+            <input type="text" id="t{{ p.index }}" name="title" value="{{ p.title }}" required>
+
+            <label for="b{{ p.index }}">{{ 'Prediction text' if p.kind == 'prediction' else 'Body' }}</label>
+            <textarea id="b{{ p.index }}" name="body" rows="8">{{ p.body }}</textarea>
+
+            {% if p.test_criteria or p.kind in ('prediction', 'experiment', 'hypothesis') %}
+              <label for="c{{ p.index }}">Objective test criteria{% if p.kind == 'prediction' %} (required){% endif %}</label>
+              <input type="text" id="c{{ p.index }}" name="test_criteria" value="{{ p.test_criteria }}">
+            {% endif %}
+            {% if p.invalidation_criteria or p.kind in ('prediction', 'experiment') %}
+              <label for="i{{ p.index }}">Invalidation criteria</label>
+              <input type="text" id="i{{ p.index }}" name="invalidation_criteria" value="{{ p.invalidation_criteria }}">
+            {% endif %}
+            {% if p.confidence %}
+              <label for="f{{ p.index }}">Confidence / uncertainty</label>
+              <input type="text" id="f{{ p.index }}" name="confidence" value="{{ p.confidence }}">
+            {% endif %}
+            {% if p.rationale %}
+              <label for="r{{ p.index }}">Rationale</label>
+              <textarea id="r{{ p.index }}" name="rationale" rows="3">{{ p.rationale }}</textarea>
+            {% endif %}
+            <input type="hidden" name="summary" value="{{ p.summary }}">
+
+            {% for w in p.warnings %}<p class="faint">&#9888; {{ w }}</p>{% endfor %}
+
+            <div class="form-actions">
+              <button class="btn" name="action" value="{{ p.kind }}" type="submit">
+                Create as {{ p.kind|capitalize }}
+              </button>
+              <span class="faint" style="margin:0 8px">or as:</span>
+              {% for alt in ['observation', 'hypothesis', 'prediction', 'experiment', 'article'] %}
+                {% if alt != p.kind %}
+                  <button class="btn btn-ghost btn-sm" name="action" value="{{ alt }}" type="submit">{{ alt|capitalize }}</button>
+                {% endif %}
+              {% endfor %}
+            </div>
+          </form>
         {% endfor %}
       </div>
     {% endif %}
@@ -51,9 +112,10 @@
     </form>
 
     {% if conversation %}
-      <form method="post" action="{{ url_for('admin.promote', conversation_id=conversation.id) }}" class="card">
+      <details class="card">
+      <summary style="cursor:pointer;font-weight:600">Write a record by hand</summary>
+      <form method="post" action="{{ url_for('admin.promote', conversation_id=conversation.id) }}">
         {% if csrf_token is defined %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">{% endif %}
-        <h3>Promote to the editorial record</h3>
         <p class="faint">Creates a DRAFT. Nothing becomes public until you publish it,
           and private trading detail is never carried across automatically.</p>
         <label for="p_title">Title</label>
@@ -70,10 +132,12 @@
           <button class="btn btn-ghost btn-sm" name="action" value="observation" type="submit">Create Observation</button>
           <button class="btn btn-ghost btn-sm" name="action" value="hypothesis" type="submit">Create Hypothesis</button>
           <button class="btn btn-ghost btn-sm" name="action" value="prediction" type="submit">Create Prediction</button>
+          <button class="btn btn-ghost btn-sm" name="action" value="experiment" type="submit">Create Experiment</button>
           <button class="btn btn-ghost btn-sm" name="action" value="article" type="submit">Draft Article</button>
           <button class="btn btn-ghost btn-sm" name="action" value="archive" type="submit">Archive thread</button>
         </div>
       </form>
+      </details>
     {% endif %}
   </div>
 </div>

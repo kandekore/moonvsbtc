@@ -5,20 +5,30 @@ Run with:
     .venv/bin/streamlit run app.py
 
 Explores whether full moons mark local tops and new moons mark local bottoms
-in Bitcoin, measures the average signed lag (+/- spread), and projects that
-forward to predict upcoming turning points.
+in Bitcoin, measures the average signed lag (+/- spread), projects that forward
+to predict upcoming turning points, and - in the Track record tab - scores every
+past moon against what was expected of it at the time.
+
+Layout
+------
+The page is organised as tabs rather than one long scroll: Overview, Chart,
+Track record, Upcoming, Distributions, Data. Everything is computed once from a
+single ``run_analysis`` call; the tabs only choose what to show.
 """
 
 from __future__ import annotations
 
 import datetime as _dt
+import math
 
-import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
 import moon_engine as me
+from btcmoon.research.track_record import (
+    build_track_record, track_record_frame, track_record_summary,
+)
 
 # ---------------------------------------------------------------------------
 # Page config + theme colours
@@ -32,13 +42,16 @@ C_HIGH = "#ff6b6b"      # swing highs
 C_LOW = "#4ecb8d"       # swing lows
 C_PRED_TOP = "rgba(255, 213, 74, 0.18)"
 C_PRED_BOT = "rgba(90, 155, 255, 0.18)"
+C_HIT = "#4ecb8d"
+C_MISS = "#ff6b6b"
 
 st.markdown(
     """
     <style>
-      .block-container {padding-top: 2rem; max-width: 1500px;}
+      .block-container {padding-top: 1.6rem; max-width: 1500px;}
       h1 {font-weight: 700;}
       [data-testid="stMetricValue"] {font-size: 1.6rem;}
+      [data-testid="stTabs"] button {font-size: 1rem;}
     </style>
     """,
     unsafe_allow_html=True,
@@ -58,21 +71,13 @@ def load_price(start: str) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 st.sidebar.title("🌕 Controls")
 
-start_choice = st.sidebar.selectbox(
-    "Price history",
-    options={
-        "Max (2014→)": "2014-09-17",
-        "Last 4 years": (_dt.date.today() - _dt.timedelta(days=365 * 4)).isoformat(),
-        "Last 2 years": (_dt.date.today() - _dt.timedelta(days=365 * 2)).isoformat(),
-    }.keys(),
-    index=2,
-)
-start_map = {
+_START_MAP = {
     "Max (2014→)": "2014-09-17",
     "Last 4 years": (_dt.date.today() - _dt.timedelta(days=365 * 4)).isoformat(),
     "Last 2 years": (_dt.date.today() - _dt.timedelta(days=365 * 2)).isoformat(),
 }
-start = start_map[start_choice]
+start_choice = st.sidebar.selectbox("Price history", options=list(_START_MAP), index=2)
+start = _START_MAP[start_choice]
 
 st.sidebar.subheader("Swing-pivot sensitivity")
 distance = st.sidebar.slider(
@@ -96,6 +101,10 @@ horizon_days = st.sidebar.slider(
 
 log_scale = st.sidebar.checkbox("Log price axis", value=True)
 
+st.sidebar.caption(
+    "The defaults reproduce the published website methodology. Moving a slider "
+    "explores a different rule — it does not change any frozen protocol."
+)
 
 # ---------------------------------------------------------------------------
 # Run analysis (always on FULL history — the view range only zooms the chart)
@@ -110,15 +119,11 @@ res = me.run_analysis(
 )
 
 # ---------------------------------------------------------------------------
-# View controls (zoom / date range / display mode)
+# View controls
 # ---------------------------------------------------------------------------
 st.sidebar.subheader("View")
-display_mode = st.sidebar.radio(
-    "Display", ["Chart", "Table", "Both"], index=0, horizontal=True,
-)
 
 data_min = price.index.min().date()
-# default the view to the last 12 months so it opens zoomed-in, not all-time
 last_price_date = price.index.max().date()
 # include the prediction horizon so future bands are visible in the default view
 data_max = max(last_price_date, _dt.date.today() + _dt.timedelta(days=horizon_days))
@@ -139,161 +144,471 @@ else:
 view_start_ts = pd.Timestamp(view_start)
 view_end_ts = pd.Timestamp(view_end)
 
+t, b = res.top_stats, res.bottom_stats
+today_ts = pd.Timestamp(_dt.date.today())
+
+
 # ---------------------------------------------------------------------------
-# Header + KPIs
+# Header
 # ---------------------------------------------------------------------------
 st.title("🌕 Bitcoin vs the Moon")
 st.caption(
     "Testing whether **full moons mark local tops** and **new moons mark local "
-    "bottoms** — and measuring the average lag to predict future turning points."
+    "bottoms** — measuring the average lag, projecting it forward, and scoring "
+    "every past call against what actually happened."
 )
 
-t, b = res.top_stats, res.bottom_stats
-k1, k2, k3, k4 = st.columns(4)
+tab_overview, tab_chart, tab_record, tab_upcoming, tab_dist, tab_data = st.tabs(
+    ["Overview", "Chart", "Track record", "Upcoming", "Distributions", "Data"]
+)
 
 
 def _fmt_offset(stats: me.OffsetStats) -> tuple[str, str]:
     if stats.n == 0:
         return "—", "no matches"
     when = "after" if stats.mean >= 0 else "before"
-    return f"{abs(stats.mean):.1f} d {when}", f"±{stats.std:.1f} d · median {stats.median:+.0f} · n={stats.n}"
-
-
-v, d = _fmt_offset(t)
-k1.metric("Top vs Full Moon", v, d, delta_color="off")
-v, d = _fmt_offset(b)
-k2.metric("Bottom vs New Moon", v, d, delta_color="off")
-k3.metric("Swing highs / lows", f"{len(res.swing_highs)} / {len(res.swing_lows)}")
-k4.metric(
-    "Price range",
-    f"${price['close'].iloc[-1]:,.0f}",
-    f"{price.index.min().date()} → {price.index.max().date()}",
-    delta_color="off",
-)
-
-st.divider()
-
-# ---------------------------------------------------------------------------
-# Main price chart
-# ---------------------------------------------------------------------------
-fig = go.Figure()
-
-fig.add_trace(
-    go.Scatter(
-        x=price.index, y=price["close"], mode="lines", name="BTC close",
-        line=dict(color=C_PRICE, width=1.2), hovertemplate="%{x|%Y-%m-%d}<br>$%{y:,.0f}<extra></extra>",
+    return (
+        f"{abs(stats.mean):.1f} d {when}",
+        f"±{stats.std:.1f} d · median {stats.median:+.0f} · n={stats.n}",
     )
-)
 
-# swing pivots
-fig.add_trace(
-    go.Scatter(
-        x=res.swing_highs, y=price.loc[res.swing_highs, "close"], mode="markers",
-        name="Swing high", marker=dict(color=C_HIGH, size=6, symbol="triangle-down"),
-        hovertemplate="High %{x|%Y-%m-%d}<br>$%{y:,.0f}<extra></extra>",
+
+# ===========================================================================
+# Overview
+# ===========================================================================
+with tab_overview:
+    k1, k2, k3, k4 = st.columns(4)
+    v, d = _fmt_offset(t)
+    k1.metric("Top vs Full Moon", v, d, delta_color="off")
+    v, d = _fmt_offset(b)
+    k2.metric("Bottom vs New Moon", v, d, delta_color="off")
+    k3.metric("Swing highs / lows", f"{len(res.swing_highs)} / {len(res.swing_lows)}")
+    k4.metric(
+        "Last close",
+        f"${price['close'].iloc[-1]:,.0f}",
+        f"{price.index.min().date()} → {price.index.max().date()}",
+        delta_color="off",
     )
-)
-fig.add_trace(
-    go.Scatter(
-        x=res.swing_lows, y=price.loc[res.swing_lows, "close"], mode="markers",
-        name="Swing low", marker=dict(color=C_LOW, size=6, symbol="triangle-up"),
-        hovertemplate="Low %{x|%Y-%m-%d}<br>$%{y:,.0f}<extra></extra>",
+
+    # An active window is the single most decision-relevant thing on the page,
+    # so it is surfaced here rather than buried in the Upcoming tab.
+    if not res.predictions.empty:
+        active = res.predictions[res.predictions["status"] == "active"]
+        if active.empty:
+            nxt = res.predictions[res.predictions["status"] == "upcoming"].head(1)
+            if not nxt.empty:
+                r = nxt.iloc[0]
+                days = (r["predicted_date"] - today_ts).days
+                st.info(
+                    f"**No window is open today.** Next: {r['moon_type']} moon on "
+                    f"{r['moon_date'].date()} → predicted {r['kind'].lower()} around "
+                    f"**{r['predicted_date'].date()}** ({days} days away)."
+                )
+        else:
+            for _, r in active.iterrows():
+                st.success(
+                    f"**Window open now:** {r['moon_type']} moon on {r['moon_date'].date()} "
+                    f"→ predicted {r['kind'].lower()} around **{r['predicted_date'].date()}** "
+                    f"(window {r['window_start'].date()} → {r['window_end'].date()})."
+                )
+
+    st.divider()
+    st.subheader("How this reads")
+    st.markdown(
+        f"""
+- **{t.summary}**
+- **{b.summary}**
+
+A mean near 0 with a wide σ means turning points scatter fairly symmetrically
+around the moon — that is a *null* result, not a positive one. A clearly positive
+mean supports the "tops lag the full moon" idea.
+
+The **Track record** tab is the honest test: it scores each past moon against the
+average that was available *before* it, so the hit rate is not flattered by
+hindsight. Use the sidebar sliders to see how quickly the pattern falls apart
+when the pivot definition changes.
+"""
     )
-)
+    st.warning(
+        "Educational / exploratory only. Lunar phases have no established causal "
+        "effect on markets; this is pattern-fitting on historical data and is not "
+        "financial advice.",
+        icon="⚠️",
+    )
 
 
+# ===========================================================================
+# Chart
+# ===========================================================================
 def _price_on(dates):
     """Price value on-or-before each date (for placing moon markers on the line)."""
     ser = price["close"]
     return [float(ser.asof(pd.Timestamp(d))) for d in dates]
 
 
-# moon markers along the price line
-fig.add_trace(
-    go.Scatter(
-        x=[pd.Timestamp(m) for m in res.full_moons], y=_price_on(res.full_moons),
-        mode="markers", name="Full moon",
-        marker=dict(color=C_FULL, size=9, symbol="circle", line=dict(width=1, color="#222")),
-        hovertemplate="🌕 Full %{x|%Y-%m-%d}<extra></extra>",
+def build_price_figure() -> go.Figure:
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatter(
+            x=price.index, y=price["close"], mode="lines", name="BTC close",
+            line=dict(color=C_PRICE, width=1.2),
+            hovertemplate="%{x|%Y-%m-%d}<br>$%{y:,.0f}<extra></extra>",
+        )
     )
-)
-fig.add_trace(
-    go.Scatter(
-        x=[pd.Timestamp(m) for m in res.new_moons], y=_price_on(res.new_moons),
-        mode="markers", name="New moon",
-        marker=dict(color=C_NEW, size=9, symbol="circle-open", line=dict(width=2, color=C_NEW)),
-        hovertemplate="🌑 New %{x|%Y-%m-%d}<extra></extra>",
+    fig.add_trace(
+        go.Scatter(
+            x=res.swing_highs, y=price.loc[res.swing_highs, "close"], mode="markers",
+            name="Swing high", marker=dict(color=C_HIGH, size=6, symbol="triangle-down"),
+            hovertemplate="High %{x|%Y-%m-%d}<br>$%{y:,.0f}<extra></extra>",
+        )
     )
-)
-
-# future prediction bands
-for _, row in res.predictions.iterrows():
-    fill = C_PRED_TOP if row["kind"] == "Top" else C_PRED_BOT
-    line = C_FULL if row["kind"] == "Top" else C_NEW
-    fig.add_vrect(
-        x0=row["window_start"], x1=row["window_end"],
-        fillcolor=fill, line_width=0, layer="below",
+    fig.add_trace(
+        go.Scatter(
+            x=res.swing_lows, y=price.loc[res.swing_lows, "close"], mode="markers",
+            name="Swing low", marker=dict(color=C_LOW, size=6, symbol="triangle-up"),
+            hovertemplate="Low %{x|%Y-%m-%d}<br>$%{y:,.0f}<extra></extra>",
+        )
     )
-    fig.add_vline(x=row["predicted_date"], line=dict(color=line, width=1, dash="dot"))
+    fig.add_trace(
+        go.Scatter(
+            x=[pd.Timestamp(m) for m in res.full_moons], y=_price_on(res.full_moons),
+            mode="markers", name="Full moon",
+            marker=dict(color=C_FULL, size=9, symbol="circle",
+                        line=dict(width=1, color="#222")),
+            hovertemplate="🌕 Full %{x|%Y-%m-%d}<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Scatter(
+            x=[pd.Timestamp(m) for m in res.new_moons], y=_price_on(res.new_moons),
+            mode="markers", name="New moon",
+            marker=dict(color=C_NEW, size=9, symbol="circle-open",
+                        line=dict(width=2, color=C_NEW)),
+            hovertemplate="🌑 New %{x|%Y-%m-%d}<extra></extra>",
+        )
+    )
 
-# mark "today"
-today_ts = pd.Timestamp(_dt.date.today())
-fig.add_vline(x=today_ts, line=dict(color="#888", width=1, dash="dash"))
+    for _, row in res.predictions.iterrows():
+        fill = C_PRED_TOP if row["kind"] == "Top" else C_PRED_BOT
+        line = C_FULL if row["kind"] == "Top" else C_NEW
+        fig.add_vrect(x0=row["window_start"], x1=row["window_end"],
+                      fillcolor=fill, line_width=0, layer="below")
+        fig.add_vline(x=row["predicted_date"], line=dict(color=line, width=1, dash="dot"))
 
-# fit the y-axis to whatever price falls inside the chosen view window so a
-# zoomed-in range isn't squashed against the full-history min/max.
-visible = price.loc[(price.index >= view_start_ts) & (price.index <= view_end_ts), "close"]
-if not visible.empty:
-    lo_v, hi_v = float(visible.min()), float(visible.max())
-    pad = (hi_v - lo_v) * 0.08 or hi_v * 0.05
-    if log_scale:
-        import math
-        y_range = [math.log10(max(lo_v - pad, 1)), math.log10(hi_v + pad)]
+    fig.add_vline(x=today_ts, line=dict(color="#888", width=1, dash="dash"))
+
+    # Fit the y-axis to whatever price falls inside the chosen view window so a
+    # zoomed-in range isn't squashed against the full-history min/max.
+    visible = price.loc[
+        (price.index >= view_start_ts) & (price.index <= view_end_ts), "close"
+    ]
+    if not visible.empty:
+        lo_v, hi_v = float(visible.min()), float(visible.max())
+        pad = (hi_v - lo_v) * 0.08 or hi_v * 0.05
+        if log_scale:
+            y_range = [math.log10(max(lo_v - pad, 1)), math.log10(hi_v + pad)]
+        else:
+            y_range = [max(lo_v - pad, 0), hi_v + pad]
     else:
-        y_range = [max(lo_v - pad, 0), hi_v + pad]
-else:
-    y_range = None
+        y_range = None
 
-fig.update_layout(
-    template="plotly_dark",
-    height=560,
-    margin=dict(l=10, r=10, t=30, b=10),
-    legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
-    hovermode="x unified",
-    yaxis=dict(
-        title="Price (USD)", type="log" if log_scale else "linear",
-        range=y_range, autorange=y_range is None,
-    ),
-    xaxis=dict(
-        title=None,
-        range=[view_start_ts, view_end_ts],
-        rangeslider=dict(visible=True, thickness=0.06),
-        rangeselector=dict(
-            buttons=[
-                dict(count=1, label="1M", step="month", stepmode="backward"),
-                dict(count=3, label="3M", step="month", stepmode="backward"),
-                dict(count=6, label="6M", step="month", stepmode="backward"),
-                dict(count=1, label="YTD", step="year", stepmode="todate"),
-                dict(count=1, label="1Y", step="year", stepmode="backward"),
-                dict(step="all", label="All"),
-            ],
-            bgcolor="#222", activecolor="#555", font=dict(color="#ddd"),
+    fig.update_layout(
+        template="plotly_dark",
+        height=560,
+        margin=dict(l=10, r=10, t=30, b=10),
+        legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0),
+        hovermode="x unified",
+        yaxis=dict(title="Price (USD)", type="log" if log_scale else "linear",
+                   range=y_range, autorange=y_range is None),
+        xaxis=dict(
+            title=None,
+            range=[view_start_ts, view_end_ts],
+            rangeslider=dict(visible=True, thickness=0.06),
+            rangeselector=dict(
+                buttons=[
+                    dict(count=1, label="1M", step="month", stepmode="backward"),
+                    dict(count=3, label="3M", step="month", stepmode="backward"),
+                    dict(count=6, label="6M", step="month", stepmode="backward"),
+                    dict(count=1, label="YTD", step="year", stepmode="todate"),
+                    dict(count=1, label="1Y", step="year", stepmode="backward"),
+                    dict(step="all", label="All"),
+                ],
+                bgcolor="#222", activecolor="#555", font=dict(color="#ddd"),
+            ),
         ),
-    ),
-)
+    )
+    return fig
 
-if display_mode in ("Chart", "Both"):
-    st.plotly_chart(fig, use_container_width=True)
+
+with tab_chart:
+    st.plotly_chart(build_price_figure(), use_container_width=True)
     st.caption(
-        "Shaded bands = predicted future turning-point windows (moon date + mean offset ± 1 std). "
-        "Dashed grey line = today. Drag on the chart to zoom, use the buttons or the "
-        "range slider beneath it, or set an exact range in the sidebar."
+        "Shaded bands = predicted future turning-point windows (moon date + mean "
+        "offset ± 1 std). Dashed grey line = today. Drag to zoom, use the buttons "
+        "or the range slider, or set an exact range in the sidebar."
     )
 
-# ---------------------------------------------------------------------------
-# Data table (daily price with moon-phase + pivot flags), filtered to the view
-# ---------------------------------------------------------------------------
-if display_mode in ("Table", "Both"):
+
+# ===========================================================================
+# Track record  -- what we expected vs what actually happened
+# ===========================================================================
+with tab_record:
+    st.subheader("Track record: expected vs actual")
+    st.caption(
+        "Every past moon, scored against the offset that was available before it. "
+        "This is the half the prediction table cannot show, because a window that "
+        "has elapsed is dropped from it."
+    )
+
+    c1, c2, c3 = st.columns([2, 2, 3])
+    basis = c1.radio(
+        "Expected offset from",
+        ["walk-forward", "full-sample"],
+        horizontal=True,
+        help=(
+            "walk-forward uses only the moons BEFORE each event — what you could "
+            "actually have known at the time. full-sample uses the headline average "
+            "over all history, which is hindsight and will look better than it was."
+        ),
+    )
+    phase_pick = c2.radio("Phase", ["Both", "Full", "New"], horizontal=True)
+    only_scored = c3.checkbox(
+        "Only moons that matched a pivot", value=True,
+        help="Unmatched moons had no qualifying swing within the lag window. They "
+             "are neither a hit nor a miss, so they are hidden by default.",
+    )
+
+    entries = build_track_record(
+        res, basis=basis.replace("-", "_"), max_lag=max_lag
+    )
+    summary = track_record_summary(entries)
+
+    if basis == "full-sample":
+        st.warning(
+            "Full-sample basis: each moon is being scored against an average that "
+            "includes that moon. Treat the accuracy below as an upper bound, not a "
+            "track record.",
+            icon="⚠️",
+        )
+
+    m1, m2, m3, m4 = st.columns(4)
+    fm, nm = summary["full_moon_to_high"], summary["new_moon_to_low"]
+    m1.metric(
+        "Full Moon → high", f"{fm['hit_rate_pct']:.0f}% in window"
+        if fm["hit_rate_pct"] is not None else "—",
+        f"MAE {fm['mean_absolute_error_days']} d · n={fm['n_scored']}"
+        if fm["mean_absolute_error_days"] is not None else "not enough data",
+        delta_color="off",
+    )
+    m2.metric(
+        "New Moon → low", f"{nm['hit_rate_pct']:.0f}% in window"
+        if nm["hit_rate_pct"] is not None else "—",
+        f"MAE {nm['mean_absolute_error_days']} d · n={nm['n_scored']}"
+        if nm["mean_absolute_error_days"] is not None else "not enough data",
+        delta_color="off",
+    )
+    m3.metric(
+        "Mean signed error",
+        f"{fm['mean_error_days']:+.1f} d" if fm["mean_error_days"] is not None else "—",
+        "Full Moon · + = pivot came later than expected", delta_color="off",
+    )
+    m4.metric(
+        "Moons with no pivot",
+        f"{fm['n_unmatched'] + nm['n_unmatched']}",
+        "no qualifying swing within the lag window", delta_color="off",
+    )
+
+    df = track_record_frame(entries)
+    if phase_pick != "Both":
+        df = df[df["moon_type"] == phase_pick]
+    if only_scored:
+        df = df[df["error_days"].notna()]
+
+    if df.empty:
+        st.info("No scored entries for this combination of filters.")
+    else:
+        view = pd.DataFrame({
+            "Moon": df["moon_type"],
+            "Moon date": df["moon_date"],
+            "Expected offset": df["expected_offset_days"],
+            "Expected date": df["expected_date"],
+            "Actual date": df["actual_pivot_date"],
+            "Actual offset": df["actual_offset_days"],
+            "Error (d)": df["error_days"],
+            "In window": df["hit_window"].map({True: "✅ hit", False: "❌ miss"}),
+            "Actual $": df["actual_pivot_price"],
+            "n prior": df["n_prior"],
+            "Note": df["note"],
+        })
+        st.dataframe(
+            view, use_container_width=True, hide_index=True, height=440,
+            column_config={
+                "Expected offset": st.column_config.NumberColumn(format="%+.2f d"),
+                "Actual offset": st.column_config.NumberColumn(format="%+d d"),
+                "Error (d)": st.column_config.NumberColumn(
+                    format="%+.2f",
+                    help="actual − expected. Positive = the pivot came later than expected.",
+                ),
+                "Actual $": st.column_config.NumberColumn(format="$%.0f"),
+            },
+        )
+        st.download_button(
+            "Download track record (CSV)", view.to_csv(index=False),
+            file_name=f"btc_moon_track_record_{basis}.csv", mime="text/csv",
+        )
+
+        scored = df[df["error_days"].notna()]
+        if not scored.empty:
+            fig_err = go.Figure()
+            for phase, colour in (("Full", C_FULL), ("New", C_NEW)):
+                sub = scored[scored["moon_type"] == phase]
+                if sub.empty:
+                    continue
+                fig_err.add_trace(
+                    go.Scatter(
+                        x=pd.to_datetime(sub["moon_date"]), y=sub["error_days"],
+                        mode="markers", name=f"{phase} moon",
+                        marker=dict(
+                            color=colour, size=8,
+                            line=dict(
+                                width=1.5,
+                                color=[C_HIT if h else C_MISS for h in sub["hit_window"]],
+                            ),
+                        ),
+                        customdata=sub[["expected_date", "actual_pivot_date"]].to_numpy(),
+                        hovertemplate=(
+                            "%{x|%Y-%m-%d}<br>expected %{customdata[0]}"
+                            "<br>actual %{customdata[1]}"
+                            "<br>error %{y:+.1f} d<extra></extra>"
+                        ),
+                    )
+                )
+            fig_err.add_hline(y=0, line=dict(color="#aaa", width=1, dash="dash"))
+            fig_err.update_layout(
+                template="plotly_dark", height=340,
+                margin=dict(l=10, r=10, t=40, b=10),
+                title="Timing error over time (0 = landed exactly on the expected day)",
+                yaxis_title="error (days)", xaxis_title=None,
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+            )
+            st.plotly_chart(fig_err, use_container_width=True)
+            st.caption(
+                "A method with real timing skill would show errors tightening toward "
+                "zero as the sample grows. Drift or a widening spread is evidence "
+                "against it — and is exactly the kind of negative result this "
+                "experiment exists to publish."
+            )
+
+    with st.expander("Why two bases, and what counts as a hit"):
+        st.markdown(
+            f"""
+**walk-forward** — the expected offset for a moon is the mean of the offsets at
+*earlier* moons only, needing at least {3} prior pairs. This is the number that
+would genuinely have been on screen beforehand.
+
+**full-sample** — the single headline average over all history, which is what the
+published site quotes. Scoring a moon with an average that includes that same moon
+is hindsight; it is shown so the gap between the two can be measured.
+
+**In window** means the actual pivot fell inside expected ± 1 standard deviation.
+With a σ of {t.std:.1f} days for full moons that window is wide, so a high hit rate
+here is much weaker evidence than it first appears — read it together with the
+mean absolute error.
+
+**Unmatched moons** had no qualifying swing within ±{max_lag} days. They are not
+counted as hits or misses; {fm['n_unmatched'] + nm['n_unmatched']} of
+{fm['n_moons'] + nm['n_moons']} moons fall in this group at the current settings.
+"""
+        )
+
+
+# ===========================================================================
+# Upcoming
+# ===========================================================================
+with tab_upcoming:
+    st.subheader("🔮 Predicted upcoming turning points")
+    if res.predictions.empty:
+        st.write("No predictions (no matches to base offsets on).")
+    else:
+        pred_view = res.predictions.copy()
+        pred_view["days_away"] = (pred_view["predicted_date"] - today_ts).dt.days
+        badge = {"active": "🟢 now", "upcoming": "🔵 upcoming", "passed": "⚪ passed"}
+        pred_view["status"] = pred_view["status"].map(badge).fillna(pred_view["status"])
+        for c in ("moon_date", "predicted_date", "window_start", "window_end"):
+            pred_view[c] = pred_view[c].dt.date
+        pred_view = pred_view[
+            ["status", "kind", "moon_type", "moon_date",
+             "predicted_date", "days_away", "window_start", "window_end"]
+        ].rename(columns={
+            "status": "Status", "kind": "Type", "moon_type": "Moon",
+            "moon_date": "Moon date", "predicted_date": "Predicted",
+            "days_away": "Days away", "window_start": "Window start",
+            "window_end": "Window end",
+        })
+
+        active = pred_view[pred_view["Status"] == "🟢 now"]
+        for _, r in active.iterrows():
+            st.success(
+                f"**We're in an active window now:** {r['Moon']} moon on "
+                f"{r['Moon date']} → predicted {r['Type'].lower()} around "
+                f"**{r['Predicted']}** (window {r['Window start']} → {r['Window end']})."
+            )
+
+        st.dataframe(pred_view, use_container_width=True, hide_index=True)
+        st.caption(
+            "These are the windows that have not yet fully elapsed. Once one passes "
+            "it moves to the **Track record** tab and is scored against what actually "
+            "happened."
+        )
+
+
+# ===========================================================================
+# Distributions
+# ===========================================================================
+def _hist(matched: pd.DataFrame, stats: me.OffsetStats, color: str, title: str):
+    if matched.empty:
+        return go.Figure().update_layout(template="plotly_dark", height=320, title=title)
+    fig_h = go.Figure()
+    fig_h.add_trace(
+        go.Histogram(
+            x=matched["offset_days"],
+            xbins=dict(start=-max_lag - 0.5, end=max_lag + 0.5, size=1),
+            marker_color=color, opacity=0.85, name="offsets",
+        )
+    )
+    fig_h.add_vline(x=0, line=dict(color="#aaa", width=1, dash="dash"))
+    fig_h.add_vline(x=stats.mean, line=dict(color="#fff", width=2))
+    fig_h.update_layout(
+        template="plotly_dark", height=320, bargap=0.05,
+        margin=dict(l=10, r=10, t=48, b=10),
+        title=(f"{title}<br><sub>mean {stats.mean:+.1f} d · median {stats.median:+.0f} d "
+               f"· σ {stats.std:.1f} · n={stats.n}</sub>"),
+        xaxis_title="offset (days from moon; − before, + after)",
+        yaxis_title="count", showlegend=False,
+    )
+    return fig_h
+
+
+with tab_dist:
+    st.subheader("How the turning points cluster around the moon")
+    hc1, hc2 = st.columns(2)
+    hc1.plotly_chart(_hist(res.top_matches, t, C_FULL, "Tops relative to Full Moon"),
+                     use_container_width=True)
+    hc2.plotly_chart(_hist(res.bottom_matches, b, C_NEW, "Bottoms relative to New Moon"),
+                     use_container_width=True)
+    st.info(
+        f"**Reading it:** {t.summary}. {b.summary}. "
+        "A mean near 0 with a wide σ means turning points scatter fairly symmetrically "
+        "around the moon; a clearly positive mean supports the 'tops lag the full moon' "
+        "idea. Adjust the pivot sensitivity in the sidebar to see how robust it is."
+    )
+
+
+# ===========================================================================
+# Data
+# ===========================================================================
+with tab_data:
+    st.subheader("Daily price with moon-phase and pivot flags")
     full_set = {pd.Timestamp(m).normalize() for m in res.full_moons}
     new_set = {pd.Timestamp(m).normalize() for m in res.new_moons}
     high_set = {pd.Timestamp(d).normalize() for d in res.swing_highs}
@@ -310,130 +625,42 @@ if display_mode in ("Table", "Both"):
     view_tbl["Date"] = view_tbl["Date"].dt.date
     view_tbl["Close $"] = view_tbl["Close $"].round(2)
 
-    only_events = st.checkbox("Show only moon / pivot days", value=False)
-    if only_events:
+    if st.checkbox("Show only moon / pivot days", value=False):
         mask = view_tbl[["Full moon", "New moon", "Swing high", "Swing low"]].any(axis=1)
         view_tbl = view_tbl[mask]
 
-    st.caption(f"{len(view_tbl):,} rows · {view_start} → {view_end}")
+    st.caption(f"{len(view_tbl):,} rows · {view_start} → {view_end} (set the range in the sidebar)")
     st.dataframe(view_tbl, use_container_width=True, hide_index=True, height=420)
     st.download_button(
         "Download this table (CSV)", view_tbl.to_csv(index=False),
         file_name="btc_moon_daily.csv", mime="text/csv",
     )
 
-st.divider()
-
-# ---------------------------------------------------------------------------
-# Offset distributions
-# ---------------------------------------------------------------------------
-st.subheader("How the turning points cluster around the moon")
-
-hc1, hc2 = st.columns(2)
-
-
-def _hist(matched: pd.DataFrame, stats: me.OffsetStats, color: str, title: str):
-    if matched.empty:
-        return go.Figure().update_layout(template="plotly_dark", height=320, title=title)
-    o = matched["offset_days"]
-    fig_h = go.Figure()
-    fig_h.add_trace(
-        go.Histogram(
-            x=o, xbins=dict(start=-max_lag - 0.5, end=max_lag + 0.5, size=1),
-            marker_color=color, opacity=0.85, name="offsets",
-        )
-    )
-    fig_h.add_vline(x=0, line=dict(color="#aaa", width=1, dash="dash"))
-    fig_h.add_vline(x=stats.mean, line=dict(color="#fff", width=2))
-    fig_h.update_layout(
-        template="plotly_dark", height=320, bargap=0.05,
-        margin=dict(l=10, r=10, t=48, b=10),
-        title=f"{title}<br><sub>mean {stats.mean:+.1f} d · median {stats.median:+.0f} d · σ {stats.std:.1f} · n={stats.n}</sub>",
-        xaxis_title="offset (days from moon; − before, + after)",
-        yaxis_title="count", showlegend=False,
-    )
-    return fig_h
-
-
-hc1.plotly_chart(
-    _hist(res.top_matches, t, C_FULL, "Tops relative to Full Moon"),
-    use_container_width=True,
-)
-hc2.plotly_chart(
-    _hist(res.bottom_matches, b, C_NEW, "Bottoms relative to New Moon"),
-    use_container_width=True,
-)
-
-st.info(
-    f"**Reading it:** {t.summary}. {b.summary}. "
-    "A mean near 0 with a wide σ means turning points scatter fairly symmetrically "
-    "around the moon; a clearly positive mean supports the 'tops lag the full moon' idea. "
-    "Adjust the pivot sensitivity in the sidebar to see how robust the pattern is."
-)
-
-st.divider()
-
-# ---------------------------------------------------------------------------
-# Predictions + matched-pairs tables
-# ---------------------------------------------------------------------------
-st.subheader("🔮 Predicted upcoming turning points")
-if res.predictions.empty:
-    st.write("No predictions (no matches to base offsets on).")
-else:
-    today = pd.Timestamp(_dt.date.today()).normalize()
-    pred_view = res.predictions.copy()
-    pred_view["days_away"] = (pred_view["predicted_date"] - today).dt.days
-    badge = {"active": "🟢 now", "upcoming": "🔵 upcoming", "passed": "⚪ passed"}
-    pred_view["status"] = pred_view["status"].map(badge).fillna(pred_view["status"])
-    for c in ("moon_date", "predicted_date", "window_start", "window_end"):
-        pred_view[c] = pred_view[c].dt.date
-    pred_view = pred_view[
-        ["status", "kind", "moon_type", "moon_date",
-         "predicted_date", "days_away", "window_start", "window_end"]
-    ].rename(
-        columns={
-            "status": "Status", "kind": "Type", "moon_type": "Moon",
-            "moon_date": "Moon date", "predicted_date": "Predicted",
-            "days_away": "Days away", "window_start": "Window start",
-            "window_end": "Window end",
-        }
-    )
-
-    active = pred_view[pred_view["Status"] == "🟢 now"]
-    if not active.empty:
-        for _, r in active.iterrows():
-            st.success(
-                f"**We're in an active window now:** {r['Moon']} moon on "
-                f"{r['Moon date']} → predicted {r['Type'].lower()} around "
-                f"**{r['Predicted']}** (window {r['Window start']} → {r['Window end']})."
-            )
-
-    st.dataframe(pred_view, use_container_width=True, hide_index=True)
-
-with st.expander("Matched historical pairs (data behind the stats)"):
-    tabs = st.tabs(["Tops (Full moon)", "Bottoms (New moon)"])
-    for tab, matched in zip(tabs, (res.top_matches, res.bottom_matches)):
-        with tab:
+    st.divider()
+    st.subheader("Matched historical pairs (the data behind the stats)")
+    sub_top, sub_bot = st.tabs(["Tops (Full moon)", "Bottoms (New moon)"])
+    for sub_tab, matched, name in (
+        (sub_top, res.top_matches, "tops"), (sub_bot, res.bottom_matches, "bottoms")
+    ):
+        with sub_tab:
             if matched.empty:
                 st.write("No matches.")
-            else:
-                view = matched.copy()
-                view["moon_date"] = view["moon_date"].dt.date
-                view["pivot_date"] = view["pivot_date"].dt.date
-                view["pivot_price"] = view["pivot_price"].round(0)
-                view = view.rename(
-                    columns={
-                        "moon_type": "Moon", "moon_date": "Moon date",
-                        "pivot_date": "Pivot date", "offset_days": "Offset (d)",
-                        "pivot_price": "Pivot $",
-                    }
-                )
-                st.dataframe(view, use_container_width=True, hide_index=True)
-                st.download_button(
-                    "Download CSV", matched.to_csv(index=False),
-                    file_name=f"{'tops' if matched is res.top_matches else 'bottoms'}.csv",
-                    mime="text/csv",
-                )
+                continue
+            mview = matched.copy()
+            mview["moon_date"] = mview["moon_date"].dt.date
+            mview["pivot_date"] = mview["pivot_date"].dt.date
+            mview["pivot_price"] = mview["pivot_price"].round(0)
+            mview = mview.rename(columns={
+                "moon_type": "Moon", "moon_date": "Moon date",
+                "pivot_date": "Pivot date", "offset_days": "Offset (d)",
+                "pivot_price": "Pivot $",
+            })
+            st.dataframe(mview, use_container_width=True, hide_index=True)
+            st.download_button(
+                "Download CSV", matched.to_csv(index=False),
+                file_name=f"{name}.csv", mime="text/csv", key=f"dl_{name}",
+            )
+
 
 st.caption(
     "⚠️ Educational / exploratory only. Lunar phases have no established causal effect "
