@@ -27,7 +27,8 @@ import streamlit as st
 
 import moon_engine as me
 from btcmoon.research.track_record import (
-    build_track_record, track_record_frame, track_record_summary,
+    build_track_record, placebo_baseline, track_record_frame,
+    track_record_summary,
 )
 
 # ---------------------------------------------------------------------------
@@ -144,7 +145,7 @@ else:
 view_start_ts = pd.Timestamp(view_start)
 view_end_ts = pd.Timestamp(view_end)
 
-t, b = res.top_stats, res.bottom_stats
+top_stats, bottom_stats = res.top_stats, res.bottom_stats
 today_ts = pd.Timestamp(_dt.date.today())
 
 
@@ -178,9 +179,9 @@ def _fmt_offset(stats: me.OffsetStats) -> tuple[str, str]:
 # ===========================================================================
 with tab_overview:
     k1, k2, k3, k4 = st.columns(4)
-    v, d = _fmt_offset(t)
+    v, d = _fmt_offset(top_stats)
     k1.metric("Top vs Full Moon", v, d, delta_color="off")
-    v, d = _fmt_offset(b)
+    v, d = _fmt_offset(bottom_stats)
     k2.metric("Bottom vs New Moon", v, d, delta_color="off")
     k3.metric("Swing highs / lows", f"{len(res.swing_highs)} / {len(res.swing_lows)}")
     k4.metric(
@@ -216,8 +217,8 @@ with tab_overview:
     st.subheader("How this reads")
     st.markdown(
         f"""
-- **{t.summary}**
-- **{b.summary}**
+- **{top_stats.summary}**
+- **{bottom_stats.summary}**
 
 A mean near 0 with a wide σ means turning points scatter fairly symmetrically
 around the moon — that is a *null* result, not a positive one. A clearly positive
@@ -360,69 +361,122 @@ with tab_record:
         "has elapsed is dropped from it."
     )
 
-    c1, c2, c3 = st.columns([2, 2, 3])
-    basis = c1.radio(
-        "Expected offset from",
-        ["walk-forward", "full-sample"],
-        horizontal=True,
+    c1, c2 = st.columns([3, 2])
+    measure = c1.radio(
+        "What counts as 'the turn'",
+        ["Local extreme (always measurable)", "Significant pivot (rare)"],
         help=(
-            "walk-forward uses only the moons BEFORE each event — what you could "
-            "actually have known at the time. full-sample uses the headline average "
-            "over all history, which is hindsight and will look better than it was."
+            "Local extreme = the highest/lowest close within ±max-lag of the moon. "
+            "It always exists, so every moon gets a measurement. "
+            "Significant pivot = the frozen website detector, which finds roughly "
+            "one pivot per 91 days — most moons cannot match one at all."
         ),
     )
-    phase_pick = c2.radio("Phase", ["Both", "Full", "New"], horizontal=True)
-    only_scored = c3.checkbox(
-        "Only moons that matched a pivot", value=True,
-        help="Unmatched moons had no qualifying swing within the lag window. They "
-             "are neither a hit nor a miss, so they are hidden by default.",
+    measure_key = "extreme" if measure.startswith("Local") else "pivot"
+    basis = c2.radio(
+        "Expected offset from", ["walk-forward", "full-sample"], horizontal=True,
+        help=(
+            "walk-forward uses only the moons BEFORE each event — what you could "
+            "actually have known at the time. full-sample uses the average over all "
+            "history, which is hindsight and will look better than it was."
+        ),
     )
 
-    entries = build_track_record(
-        res, basis=basis.replace("-", "_"), max_lag=max_lag
-    )
-    summary = track_record_summary(entries)
+    entries = build_track_record(res, basis=basis.replace("-", "_"), max_lag=max_lag)
+    summary = track_record_summary(entries, measure=measure_key)
+    fm, nm = summary["full_moon_to_high"], summary["new_moon_to_low"]
 
     if basis == "full-sample":
         st.warning(
-            "Full-sample basis: each moon is being scored against an average that "
-            "includes that moon. Treat the accuracy below as an upper bound, not a "
-            "track record.",
+            "Full-sample basis: each moon is scored against an average that includes "
+            "that moon. Treat the accuracy below as an upper bound, not a record.",
             icon="⚠️",
         )
 
     m1, m2, m3, m4 = st.columns(4)
-    fm, nm = summary["full_moon_to_high"], summary["new_moon_to_low"]
     m1.metric(
-        "Full Moon → high", f"{fm['hit_rate_pct']:.0f}% in window"
-        if fm["hit_rate_pct"] is not None else "—",
+        "Full Moon → high",
+        f"{fm['hit_rate_pct']:.0f}% in window" if fm["hit_rate_pct"] is not None else "—",
         f"MAE {fm['mean_absolute_error_days']} d · n={fm['n_scored']}"
         if fm["mean_absolute_error_days"] is not None else "not enough data",
         delta_color="off",
     )
     m2.metric(
-        "New Moon → low", f"{nm['hit_rate_pct']:.0f}% in window"
-        if nm["hit_rate_pct"] is not None else "—",
+        "New Moon → low",
+        f"{nm['hit_rate_pct']:.0f}% in window" if nm["hit_rate_pct"] is not None else "—",
         f"MAE {nm['mean_absolute_error_days']} d · n={nm['n_scored']}"
         if nm["mean_absolute_error_days"] is not None else "not enough data",
         delta_color="off",
     )
     m3.metric(
-        "Mean signed error",
-        f"{fm['mean_error_days']:+.1f} d" if fm["mean_error_days"] is not None else "—",
-        "Full Moon · + = pivot came later than expected", delta_color="off",
+        "Measured", f"{fm['n_scored'] + nm['n_scored']} / {fm['n_moons'] + nm['n_moons']}",
+        "moons with a usable measurement", delta_color="off",
     )
-    m4.metric(
-        "Moons with no pivot",
-        f"{fm['n_unmatched'] + nm['n_unmatched']}",
-        "no qualifying swing within the lag window", delta_color="off",
-    )
+    if measure_key == "extreme":
+        m4.metric(
+            "Of those, real turns",
+            f"{fm['n_extreme_was_turning_point'] + nm['n_extreme_was_turning_point']}",
+            f"{fm['n_extreme_at_window_edge'] + nm['n_extreme_at_window_edge']} "
+            f"sat on the window edge (trending, not turning)", delta_color="off",
+        )
+    else:
+        m4.metric(
+            "Undecidable", f"{fm['n_undecidable'] + nm['n_undecidable']}",
+            "no significant pivot within the lag window", delta_color="off",
+        )
+
+    # --- the number that actually matters ---------------------------------
+    if measure_key == "extreme":
+        st.markdown("#### Does the Moon beat a random date?")
+        base = placebo_baseline(res, max_lag=max_lag, n_trials=1000)
+        bc = st.columns(2)
+        for col, (key, name) in zip(bc, (("full_moon_to_high", "Full Moon → high"),
+                                         ("new_moon_to_low", "New Moon → low"))):
+            stat = base[key]
+            if stat["edge_pct"] is None:
+                col.info(f"{name}: not enough data for a baseline.")
+                continue
+            verdict = (
+                "Distinguishable from chance." if stat["significant"]
+                else "**Not distinguishable from chance.**"
+            )
+            col.markdown(
+                f"**{name}** — window {stat['window_days'][0]:+d} to "
+                f"{stat['window_days'][1]:+d} d\n\n"
+                f"- Real moons: **{stat['real_hit_rate_pct']}%** (n={stat['n_real']})\n"
+                f"- Random dates: **{stat['placebo_hit_rate_pct']}%** (n={stat['n_trials']})\n"
+                f"- Edge: **{stat['edge_pct']:+.1f} ± {stat['edge_se_pct']:.1f}** pp\n\n"
+                f"{verdict}"
+            )
+        st.caption(
+            "A local extreme always exists inside the window, so the raw hit rate "
+            "above has a large floor that has nothing to do with the Moon. The edge "
+            "over random dates — scored through the identical measurement, with the "
+            "same window — is the only figure here that tests the hypothesis."
+        )
+
+    st.divider()
+
+    # --- the table ---------------------------------------------------------
+    f1, f2, f3 = st.columns([2, 3, 3])
+    phase_pick = f1.radio("Phase", ["Both", "Full", "New"], horizontal=True)
+    hide_edge = f2.checkbox(
+        "Hide extremes on the window boundary", value=False,
+        help="Where |offset| is at the edge, price trended through the window "
+             "rather than turning in it.",
+    ) if measure_key == "extreme" else False
+    turns_only = f3.checkbox(
+        "Only where the extreme was a significant pivot", value=False,
+    ) if measure_key == "extreme" else False
 
     df = track_record_frame(entries)
     if phase_pick != "Both":
         df = df[df["moon_type"] == phase_pick]
-    if only_scored:
-        df = df[df["error_days"].notna()]
+    df = df[df[f"{measure_key}_error_days"].notna()]
+    if hide_edge:
+        df = df[~df["extreme_at_window_edge"].fillna(False)]
+    if turns_only:
+        df = df[df["extreme_is_turning_point"].fillna(False)]
 
     if df.empty:
         st.info("No scored entries for this combination of filters.")
@@ -430,94 +484,80 @@ with tab_record:
         view = pd.DataFrame({
             "Moon": df["moon_type"],
             "Moon date": df["moon_date"],
-            "Expected offset": df["expected_offset_days"],
-            "Expected date": df["expected_date"],
-            "Actual date": df["actual_pivot_date"],
-            "Actual offset": df["actual_offset_days"],
-            "Error (d)": df["error_days"],
-            "In window": df["hit_window"].map({True: "✅ hit", False: "❌ miss"}),
-            "Actual $": df["actual_pivot_price"],
-            "n prior": df["n_prior"],
-            "Note": df["note"],
+            "Expected": df[f"expected_{measure_key}_date"],
+            "Actual": df[f"{measure_key}_date"],
+            "Offset": df[f"{measure_key}_offset_days"],
+            "Error (d)": df[f"{measure_key}_error_days"],
+            "In window": df[f"{measure_key}_hit"].map({True: "✅ hit", False: "❌ miss"}),
         })
+        if measure_key == "extreme":
+            view["Real turn?"] = df["extreme_is_turning_point"].map(
+                {True: "✅ pivot", False: "— minor"})
+            view["Edge of window?"] = df["extreme_at_window_edge"].map(
+                {True: "⚠️ trending", False: ""})
+            view["Close $"] = df["extreme_close"]
+        else:
+            view["Close $"] = df["pivot_close"]
+
         st.dataframe(
-            view, use_container_width=True, hide_index=True, height=440,
+            view, use_container_width=True, hide_index=True, height=420,
             column_config={
-                "Expected offset": st.column_config.NumberColumn(format="%+.2f d"),
-                "Actual offset": st.column_config.NumberColumn(format="%+d d"),
+                "Offset": st.column_config.NumberColumn(format="%+d d"),
                 "Error (d)": st.column_config.NumberColumn(
                     format="%+.2f",
-                    help="actual − expected. Positive = the pivot came later than expected.",
-                ),
-                "Actual $": st.column_config.NumberColumn(format="$%.0f"),
+                    help="actual − expected. Positive = the turn came later than expected."),
+                "Close $": st.column_config.NumberColumn(format="$%.0f"),
             },
         )
         st.download_button(
-            "Download track record (CSV)", view.to_csv(index=False),
-            file_name=f"btc_moon_track_record_{basis}.csv", mime="text/csv",
+            "Download track record (CSV)", track_record_frame(entries).to_csv(index=False),
+            file_name=f"btc_moon_track_record_{measure_key}_{basis}.csv", mime="text/csv",
         )
 
-        scored = df[df["error_days"].notna()]
-        if not scored.empty:
-            fig_err = go.Figure()
-            for phase, colour in (("Full", C_FULL), ("New", C_NEW)):
-                sub = scored[scored["moon_type"] == phase]
-                if sub.empty:
-                    continue
-                fig_err.add_trace(
-                    go.Scatter(
-                        x=pd.to_datetime(sub["moon_date"]), y=sub["error_days"],
-                        mode="markers", name=f"{phase} moon",
-                        marker=dict(
-                            color=colour, size=8,
-                            line=dict(
-                                width=1.5,
-                                color=[C_HIT if h else C_MISS for h in sub["hit_window"]],
-                            ),
-                        ),
-                        customdata=sub[["expected_date", "actual_pivot_date"]].to_numpy(),
-                        hovertemplate=(
-                            "%{x|%Y-%m-%d}<br>expected %{customdata[0]}"
-                            "<br>actual %{customdata[1]}"
-                            "<br>error %{y:+.1f} d<extra></extra>"
-                        ),
-                    )
-                )
-            fig_err.add_hline(y=0, line=dict(color="#aaa", width=1, dash="dash"))
-            fig_err.update_layout(
-                template="plotly_dark", height=340,
-                margin=dict(l=10, r=10, t=40, b=10),
-                title="Timing error over time (0 = landed exactly on the expected day)",
-                yaxis_title="error (days)", xaxis_title=None,
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-            )
-            st.plotly_chart(fig_err, use_container_width=True)
-            st.caption(
-                "A method with real timing skill would show errors tightening toward "
-                "zero as the sample grows. Drift or a widening spread is evidence "
-                "against it — and is exactly the kind of negative result this "
-                "experiment exists to publish."
-            )
+        fig_err = go.Figure()
+        for phase, colour in (("Full", C_FULL), ("New", C_NEW)):
+            sub = df[df["moon_type"] == phase]
+            if sub.empty:
+                continue
+            fig_err.add_trace(go.Scatter(
+                x=pd.to_datetime(sub["moon_date"]), y=sub[f"{measure_key}_error_days"],
+                mode="markers", name=f"{phase} moon",
+                marker=dict(color=colour, size=8, line=dict(
+                    width=1.5,
+                    color=[C_HIT if h else C_MISS for h in sub[f"{measure_key}_hit"]])),
+                hovertemplate="%{x|%Y-%m-%d}<br>error %{y:+.1f} d<extra></extra>",
+            ))
+        fig_err.add_hline(y=0, line=dict(color="#aaa", width=1, dash="dash"))
+        fig_err.update_layout(
+            template="plotly_dark", height=340, margin=dict(l=10, r=10, t=40, b=10),
+            title="Timing error over time (0 = landed exactly on the expected day)",
+            yaxis_title="error (days)", xaxis_title=None,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
+        )
+        st.plotly_chart(fig_err, use_container_width=True)
 
-    with st.expander("Why two bases, and what counts as a hit"):
+    with st.expander("How to read this — two different questions"):
         st.markdown(
             f"""
-**walk-forward** — the expected offset for a moon is the mean of the offsets at
-*earlier* moons only, needing at least {3} prior pairs. This is the number that
-would genuinely have been on screen beforehand.
+**Local extreme** answers *where was the turn?* There is always a highest and a
+lowest close inside a ±{max_lag} day window, so every moon gets a measurement.
+That is why this view is populated where the old one said "no data".
 
-**full-sample** — the single headline average over all history, which is what the
-published site quotes. Scoring a moon with an average that includes that same moon
-is hindsight; it is shown so the gap between the two can be measured.
+**Significant pivot** answers *was it a real turning point?* The frozen website
+detector (spacing 30, prominence 15% of median close) finds about one pivot per
+91 days, against a moon every 14.8 days — so most moons cannot match one. That
+is a property of the detector, not missing data.
 
-**In window** means the actual pivot fell inside expected ± 1 standard deviation.
-With a σ of {t.std:.1f} days for full moons that window is wide, so a high hit rate
-here is much weaker evidence than it first appears — read it together with the
-mean absolute error.
+**The window-edge warning matters.** {fm['n_extreme_at_window_edge'] + nm['n_extreme_at_window_edge']}
+of {fm['n_scored'] + nm['n_scored']} extremes sit on the boundary of the window.
+For those, price trended straight through and the true extreme lies outside —
+they are not evidence of a lunar turn, and the |offset| histogram piling up at
+±{max_lag} is the signature of a trending market, not a lunar one.
 
-**Unmatched moons** had no qualifying swing within ±{max_lag} days. They are not
-counted as hits or misses; {fm['n_unmatched'] + nm['n_unmatched']} of
-{fm['n_moons'] + nm['n_moons']} moons fall in this group at the current settings.
+**In window** means the actual turn fell inside expected ± 1 standard deviation.
+That window is wide, so a hit rate near 50–60% is what chance alone produces —
+which is exactly why the placebo comparison above is the only number that tests
+the hypothesis.
 """
         )
 
@@ -592,12 +632,12 @@ def _hist(matched: pd.DataFrame, stats: me.OffsetStats, color: str, title: str):
 with tab_dist:
     st.subheader("How the turning points cluster around the moon")
     hc1, hc2 = st.columns(2)
-    hc1.plotly_chart(_hist(res.top_matches, t, C_FULL, "Tops relative to Full Moon"),
+    hc1.plotly_chart(_hist(res.top_matches, top_stats, C_FULL, "Tops relative to Full Moon"),
                      use_container_width=True)
-    hc2.plotly_chart(_hist(res.bottom_matches, b, C_NEW, "Bottoms relative to New Moon"),
+    hc2.plotly_chart(_hist(res.bottom_matches, bottom_stats, C_NEW, "Bottoms relative to New Moon"),
                      use_container_width=True)
     st.info(
-        f"**Reading it:** {t.summary}. {b.summary}. "
+        f"**Reading it:** {top_stats.summary}. {bottom_stats.summary}. "
         "A mean near 0 with a wide σ means turning points scatter fairly symmetrically "
         "around the moon; a clearly positive mean supports the 'tops lag the full moon' "
         "idea. Adjust the pivot sensitivity in the sidebar to see how robust it is."
